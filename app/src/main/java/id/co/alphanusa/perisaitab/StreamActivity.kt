@@ -82,7 +82,10 @@ import id.co.alphanusa.perisaitab.ui.components.CardControlLive
 import id.co.alphanusa.perisaitab.ui.components.DialogCall
 import id.co.alphanusa.perisaitab.ui.components.DialogMap
 import id.co.alphanusa.perisaitab.ui.components.OsmdroidMapView
+import id.co.alphanusa.perisaitab.ui.components.RTMPConfig
 import id.co.alphanusa.perisaitab.ui.components.RTMPControl
+import id.co.alphanusa.perisaitab.ui.components.RtmpResolution
+import id.co.alphanusa.perisaitab.ui.components.RtmpStreamStatus
 import id.co.alphanusa.perisaitab.ui.components.TacticalContainer
 import id.co.alphanusa.perisaitab.ui.components.VlcVideoView
 import id.co.alphanusa.perisaitab.ui.components.backgroundColor
@@ -615,6 +618,15 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
 
         var state by remember { mutableStateOf<UiState>(UiState.Disconnected) }
 
+        // ── State RTMP (relay GoPro → server RTMP) ───────────────────────────
+        var savedRTMPConfig by remember { mutableStateOf(RTMPConfig()) }
+        var rtmpStreamStatus by remember { mutableStateOf<RtmpStreamStatus?>(null) }
+        var rtmpError by remember { mutableStateOf<String?>(null) }
+        var isRtmpLoading by remember { mutableStateOf(false) }
+        var isRtmpStreaming by remember { mutableStateOf(false) }
+        // Target RTMP aktif. null = hanya preview (belum/berhenti relay).
+        var rtmpRestreamUrl by remember { mutableStateOf<String?>(null) }
+
         fun connect() {
             state = UiState.Connecting
             scope.launch {
@@ -623,6 +635,35 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
                     is GoProUsbCamera.Result.Failed -> UiState.Error(r.reason)
                 }
             }
+        }
+
+        fun onSaveRTMPConfig(config: RTMPConfig) {
+            savedRTMPConfig = config
+        }
+
+        fun onStartRTMP(config: RTMPConfig) {
+            val target = this@StreamActivity.rtmpUrl
+            if (target.isNullOrEmpty()) {
+                rtmpError = "URL RTMP server belum siap, coba lagi sebentar."
+                return
+            }
+            if (state !is UiState.Connected) {
+                rtmpError = "GoPro belum tersambung."
+                return
+            }
+            savedRTMPConfig = config
+            rtmpError = null
+            isRtmpLoading = true
+            isRtmpStreaming = false
+            // Memicu VlcVideoView dibuat ulang dengan sout RTMP aktif.
+            rtmpRestreamUrl = target
+        }
+
+        val onStopRTMP: () -> Unit = {
+            rtmpRestreamUrl = null
+            isRtmpStreaming = false
+            isRtmpLoading = false
+            rtmpStreamStatus = null
         }
 
         // Coba sambung saat layar dibuka.
@@ -716,6 +757,29 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
                     is UiState.Connected -> {
                         VlcVideoView(
                             streamUrl = s.result.streamUrl,
+                            rtmpUrl = rtmpRestreamUrl,
+                            onPlaying = {
+                                if (rtmpRestreamUrl != null) {
+                                    isRtmpLoading = false
+                                    isRtmpStreaming = true
+                                    rtmpStreamStatus = RtmpStreamStatus(
+                                        isStreaming = true,
+                                        resolution = RtmpResolution(
+                                            savedRTMPConfig.resolutionWidth,
+                                            savedRTMPConfig.resolutionHeight
+                                        ),
+                                        fps = 30,
+                                        vbps = savedRTMPConfig.bitrateKbps,
+                                    )
+                                }
+                            },
+                            onError = {
+                                if (rtmpRestreamUrl != null) {
+                                    rtmpError = "Gagal mengirim ke RTMP."
+                                    isRtmpLoading = false
+                                    isRtmpStreaming = false
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(12.dp))
@@ -773,10 +837,10 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
                     CardControlLive(
                         centrifugoManager = centrifugoManager,
                         openSettings = { showRTMPSettingsDialog = true },
-//                        rtmpStreamStatus = rtmpStreamStatus,
-//                        rtmpError = rtmpError,
-//                        isRtmpLoading = isRtmpLoading,
-//                        isRtmpStreaming = isRtmpStreaming
+                        rtmpStreamStatus = rtmpStreamStatus,
+                        rtmpError = rtmpError,
+                        isRtmpLoading = isRtmpLoading,
+                        isRtmpStreaming = isRtmpStreaming
                     )
 
                 }

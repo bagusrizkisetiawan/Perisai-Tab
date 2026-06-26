@@ -33,14 +33,14 @@ fun CardControlLive(
     borderWidth: Dp = 4.dp,
     borderColor: Color = colorPrimary,
     openSettings: () -> Unit,
-//    rtmpStreamStatus: String,
-//    rtmpError: String?,
-//    isRtmpLoading: Boolean,
-//    isRtmpStreaming: Boolean = false,
+    rtmpStreamStatus: RtmpStreamStatus? = null,
+    rtmpError: String? = null,
+    isRtmpLoading: Boolean = false,
+    isRtmpStreaming: Boolean = false,
 ) {
     val centrifugoState by centrifugoManager.connectionState.collectAsState()
 
-//    val isLive = (isRtmpStreaming) && rtmpError == null
+    val isLive = (isRtmpStreaming || rtmpStreamStatus?.isStreaming == true) && rtmpError == null
 
 
     val colorCentrifugo = when (centrifugoState) {
@@ -74,20 +74,20 @@ fun CardControlLive(
         else -> {}
     }
 
-//    val colorsLiveConnect = when {
-//        isLive -> successColor
-//        isRtmpLoading -> warningColor
-//        rtmpError != null -> dangerColor
-//        else -> dangerColor
-//    }
-//
-//
-//    val textLiveConnect = when {
-//        isLive ->  "Video Live"
-//        isRtmpLoading -> "Video Live Connecting..."
-//        rtmpError != null -> "Video Live Disconnected"
-//        else -> "Video Live Disconnected"
-//    }
+    val colorsLiveConnect = when {
+        isLive -> successColor
+        isRtmpLoading -> warningColor
+        rtmpError != null -> dangerColor
+        else -> dangerColor
+    }
+
+
+    val textLiveConnect = when {
+        isLive ->  "Video Live"
+        isRtmpLoading -> "Video Live Connecting..."
+        rtmpError != null -> "Video Live Disconnected"
+        else -> "Video Live Disconnected"
+    }
 
 
     TacticalContainer(
@@ -104,39 +104,39 @@ fun CardControlLive(
             horizontalAlignment = Alignment.Start,
         ) {
 
-//            Box(
-//                modifier = modifier
-//                    .wrapContentHeight()
-//                    .clip(shape = RoundedCornerShape(size = 2.dp))
-//                    .padding( 4.dp),
-//
-//                ) {
-//                Row(
-//                    horizontalArrangement = Arrangement.spacedBy(
-//                        8.dp, Alignment.CenterHorizontally
-//                    ),
-//                    verticalAlignment = Alignment.CenterVertically,
-//                ) {
-//                    Box(
-//                        modifier = Modifier
-//                            .width(8.dp)
-//                            .height(8.dp)
-//                            .background(
-//                                color = colorsLiveConnect as Color,
-//                                shape = RoundedCornerShape(size = 8.dp)
-//                            )
-//                            .padding(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 4.dp)
-//                    )
-//                    Text(
-//                        text = textLiveConnect,
-//                        color = colorsLiveConnect as Color,
-//                        letterSpacing = 2.sp,
-//                        fontSize = 10.sp
-//                    )
-//                }
-//            }
-//
-//            Spacer(modifier = Modifier.height(1.dp))
+            Box(
+                modifier = modifier
+                    .wrapContentHeight()
+                    .clip(shape = RoundedCornerShape(size = 2.dp))
+                    .padding( 4.dp),
+
+                ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(
+                        8.dp, Alignment.CenterHorizontally
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(8.dp)
+                            .height(8.dp)
+                            .background(
+                                color = colorsLiveConnect,
+                                shape = RoundedCornerShape(size = 8.dp)
+                            )
+                            .padding(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 4.dp)
+                    )
+                    Text(
+                        text = textLiveConnect,
+                        color = colorsLiveConnect,
+                        letterSpacing = 2.sp,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(1.dp))
 
             Box(
                 modifier = modifier
@@ -173,4 +173,3 @@ fun CardControlLive(
         }
     }
 }
-

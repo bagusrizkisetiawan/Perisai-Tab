@@ -24,18 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import dji.v5.manager.datacenter.livestream.LiveStreamStatus
-import dji.v5.manager.datacenter.livestream.LiveVideoBitrateMode
-import dji.v5.manager.datacenter.livestream.StreamQuality
-import dji.v5.manager.interfaces.ICameraStreamManager
 import id.co.alphanusa.perisaitab.realtime.CentrifugoClientManager
 import id.co.alphanusa.perisaitab.realtime.CentrifugoConnectionState
-import id.co.tigabersama.surveillance.data.manager.CentrifugoClientManager
-import id.co.tigabersama.surveillance.data.manager.CentrifugoConnectionState
-import id.co.tigabersama.surveillance.ui.theme.colorPrimary
-import id.co.tigabersama.surveillance.ui.theme.dangerColor
-import id.co.tigabersama.surveillance.ui.theme.successColor
-import id.co.tigabersama.surveillance.ui.theme.warningColor
 import java.text.SimpleDateFormat
 import java.util.Date
 
@@ -50,7 +40,7 @@ fun RTMPControl(
     borderWidth: Dp = 4.dp,
     borderColor: Color = colorPrimary,
     centrifugoManager: CentrifugoClientManager,
-    rtmpStreamStatus: LiveStreamStatus?,
+    rtmpStreamStatus: RtmpStreamStatus?,
     rtmpError: String?,
     isRtmpLoading: Boolean,
     isRtmpStreaming: Boolean = false,
