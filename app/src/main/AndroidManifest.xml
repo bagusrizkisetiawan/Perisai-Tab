@@ -54,6 +54,15 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Saat kamera USB (UVC) dicolok: tawarkan buka app + beri izin USB
+                 otomatis & persisten (centang "selalu"). Sama seperti TestGoPro. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
         </activity>
         <activity
             android:name=".StreamActivity"

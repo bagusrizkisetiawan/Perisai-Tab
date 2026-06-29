@@ -109,6 +109,16 @@ fun OsmdroidMapView(
         ContextCompat.getDrawable(context, R.drawable.arrow)
     }
 
+    // Ikon marker perangkat di-resize sekali saja (bukan tiap update) untuk
+    // menghindari penskalaan bitmap berulang yang bikin lag.
+    val deviceIcon = remember(deviceMarkerIcon) {
+        deviceMarkerIcon?.let { iconRes ->
+            ContextCompat.getDrawable(context, iconRes)?.let {
+                resizeDrawableByWidth(context, it, 48)
+            }
+        }
+    }
+
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
     val initialCenter = remember { GeoPoint(-6.9828, 110.4091) }
 
@@ -171,11 +181,7 @@ fun OsmdroidMapView(
                         position = deviceLocation
                         title = deviceMarkerTitle
                         setAnchor(Marker.ANCHOR_CENTER, 5f / 8f)
-                        deviceMarkerIcon?.let { iconRes ->
-                            ContextCompat.getDrawable(mapView.context, iconRes)?.let {
-                                icon = resizeDrawableByWidth(mapView.context, it, 48)
-                            }
-                        }
+                        deviceIcon?.let { icon = it }
                         pocYaw?.let { yaw ->
                             rotation = (360 - yaw) % 360
                             isFlat = true

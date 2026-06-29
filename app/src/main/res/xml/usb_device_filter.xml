@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Kamera UVC: kelas Video (14) -->
+    <usb-device class="14" />
+    <!-- Komposit ber-IAD (Miscellaneous) yang umum dipakai webcam/dongle -->
+    <usb-device class="239" subclass="2" protocol="1" />
+</resources>

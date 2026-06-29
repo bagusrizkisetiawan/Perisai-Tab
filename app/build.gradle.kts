@@ -14,11 +14,20 @@ android {
     defaultConfig {
         applicationId = "id.co.alphanusa.perisaitab"
         minSdk = 24
-        targetSdk = 36
+        // targetSdk 33: libausbc 3.2.7 mendaftarkan BroadcastReceiver tanpa flag
+        // RECEIVER_EXPORTED/NOT_EXPORTED. Aturan wajib itu hanya untuk app
+        // targetSdk 34+, jadi 33 menghindari crash di USBMonitor.register().
+        targetSdk = 33
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // libausbc membundel native lib untuk semua ABI. Batasi ke arm64-v8a
+        // (mayoritas perangkat modern). Tambah "armeabi-v7a" bila perlu 32-bit.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
 
         // URL default backend. Bisa diubah pengguna lewat layar Settings.
         // Sesuaikan nilai di bawah dengan environment produksi Anda.
@@ -110,6 +119,14 @@ dependencies {
     // libVLC (pemutar video / RTSP/RTMP player) - dari Maven Central
     // Versi disamakan dengan project TestGoPro yang sudah terbukti jalan.
     implementation("org.videolan.android:libvlc-all:3.7.4")
+
+    // Kamera USB (UVC) - webcam / dongle capture HDMI-USB. Dari JitPack.
+    implementation("com.github.jiangdongguo.AndroidUSBCamera:libausbc:3.2.7") {
+        // Dependency transitif yang sudah mati di jcenter & tidak dipakai preview.
+        exclude(group = "com.gyf.immersionbar", module = "immersionbar")
+        exclude(group = "com.zlc.glide", module = "webpdecoder")
+    }
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
 
     //splash screen
     implementation("androidx.core:core-splashscreen:1.0.1")

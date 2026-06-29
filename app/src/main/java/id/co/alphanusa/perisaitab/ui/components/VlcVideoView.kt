@@ -41,10 +41,16 @@ fun VlcVideoView(
         LibVLC(
             context,
             arrayListOf(
+                // Mode low-latency: buffer dibuat sekecil mungkin agar delay minim.
+                // Naikkan angka caching bila video patah-patah di jaringan kurang stabil.
                 "--no-drop-late-frames",
                 "--no-skip-frames",
                 "--rtsp-tcp",
-                "--network-caching=200",
+                "--network-caching=100",
+                "--live-caching=100",
+                "--sout-mux-caching=100",
+                "--clock-jitter=0",
+                "--clock-synchro=0",
             ),
         )
     }
@@ -57,7 +63,10 @@ fun VlcVideoView(
         player.attachViews(videoLayout, null, false, false)
         val media = Media(libVlc, Uri.parse(streamUrl)).apply {
             setHWDecoderEnabled(true, false)
-            addOption(":network-caching=200")
+            // Buffer kecil = delay minim (low-latency).
+            addOption(":network-caching=100")
+            addOption(":live-caching=100")
+            addOption(":sout-mux-caching=100")
             addOption(":clock-jitter=0")
             addOption(":clock-synchro=0")
             if (!rtmpUrl.isNullOrEmpty()) {

@@ -23,7 +23,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,12 +60,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pedro.common.ConnectChecker
@@ -87,8 +92,11 @@ import id.co.alphanusa.perisaitab.ui.components.RTMPControl
 import id.co.alphanusa.perisaitab.ui.components.RtmpResolution
 import id.co.alphanusa.perisaitab.ui.components.RtmpStreamStatus
 import id.co.alphanusa.perisaitab.ui.components.TacticalContainer
+import id.co.alphanusa.perisaitab.ui.components.UvcCameraView
 import id.co.alphanusa.perisaitab.ui.components.VlcVideoView
 import id.co.alphanusa.perisaitab.ui.components.backgroundColor
+import id.co.alphanusa.perisaitab.ui.components.colorPrimary
+import id.co.alphanusa.perisaitab.ui.components.successColor
 import id.co.alphanusa.perisaitab.ui.theme.PERISAITABTheme
 import id.co.alphanusa.perisaitab.ui.viewmodel.LivekitViewModel
 import id.co.alphanusa.perisaitab.ui.viewmodel.LivekitViewModelFactory
@@ -117,15 +125,19 @@ private const val DEFAULT_STREAM_WIDTH = 1280
 private const val DEFAULT_STREAM_HEIGHT = 720
 private const val DEFAULT_STREAM_BITRATE = 2_500_000
 
-/** Status koneksi yang ditampilkan ke pengguna. */
+// Ambang perubahan sudut (derajat) sebelum state sensor di-update. Mengurangi
+// recomposition berlebihan dari sensor yang memicu rebuild peta.
+private const val SENSOR_UPDATE_THRESHOLD_DEG = 1.5f
+
+/** Status koneksi kamera USB yang ditampilkan ke pengguna. */
 private sealed interface UiState {
     data object Disconnected : UiState
     data object Connecting : UiState
-    data class Connected(val result: GoProUsbCamera.Result.Connected) : UiState
+    data object Connected : UiState
     data class Error(val message: String) : UiState
 }
 
-class StreamActivity : ComponentActivity(), ConnectChecker {
+class StreamActivity : FragmentActivity(), ConnectChecker {
     // =========================================================================
     // 1. PROPERTIES & STATE VARIABLES
     // =========================================================================
@@ -243,11 +255,22 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
                                 val orientationValues = FloatArray(3)
                                 SensorManager.getOrientation(rotationMatrix, orientationValues)
 
-                                yaw = Math.toDegrees(orientationValues[0].toDouble()).toFloat()
-                                pitch = Math.toDegrees(orientationValues[1].toDouble()).toFloat()
-                                roll = Math.toDegrees(orientationValues[2].toDouble()).toFloat()
+                                val newYaw = Math.toDegrees(orientationValues[0].toDouble()).toFloat()
+                                val newPitch = Math.toDegrees(orientationValues[1].toDouble()).toFloat()
+                                val newRoll = Math.toDegrees(orientationValues[2].toDouble()).toFloat()
 
-                                sendToCentrifugo()
+                                // Throttle: hanya update state (→ recomposition) bila
+                                // perubahan cukup besar. Sensor memicu puluhan event/detik;
+                                // tanpa throttle, peta dibangun ulang terus → lag.
+                                val changed = kotlin.math.abs(newYaw - yaw) >= SENSOR_UPDATE_THRESHOLD_DEG ||
+                                    kotlin.math.abs(newPitch - pitch) >= SENSOR_UPDATE_THRESHOLD_DEG ||
+                                    kotlin.math.abs(newRoll - roll) >= SENSOR_UPDATE_THRESHOLD_DEG
+                                if (changed) {
+                                    yaw = newYaw
+                                    pitch = newPitch
+                                    roll = newRoll
+                                    sendToCentrifugo()
+                                }
                             }
                         }
                     }
@@ -613,84 +636,41 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
             }
         }
 
-        val scope = rememberCoroutineScope()
-        val camera = remember { GoProUsbCamera(context) }
+        // Status koneksi kamera USB (UVC). Dikelola oleh libausbc via UvcCameraView.
+        var state by remember { mutableStateOf<UiState>(UiState.Connecting) }
 
-        var state by remember { mutableStateOf<UiState>(UiState.Disconnected) }
-
-        // ── State RTMP (relay GoPro → server RTMP) ───────────────────────────
+        // ── State RTMP ───────────────────────────────────────────────────────
+        // Catatan: dengan sumber UVC (kamera USB), push RTMP perlu mekanisme
+        // encoder tersendiri. Untuk saat ini UI RTMP tetap ada tapi belum aktif.
         var savedRTMPConfig by remember { mutableStateOf(RTMPConfig()) }
         var rtmpStreamStatus by remember { mutableStateOf<RtmpStreamStatus?>(null) }
         var rtmpError by remember { mutableStateOf<String?>(null) }
         var isRtmpLoading by remember { mutableStateOf(false) }
         var isRtmpStreaming by remember { mutableStateOf(false) }
-        // Target RTMP aktif. null = hanya preview (belum/berhenti relay).
-        var rtmpRestreamUrl by remember { mutableStateOf<String?>(null) }
-
-        fun connect() {
-            state = UiState.Connecting
-            scope.launch {
-                state = when (val r = camera.connect()) {
-                    is GoProUsbCamera.Result.Connected -> UiState.Connected(r)
-                    is GoProUsbCamera.Result.Failed -> UiState.Error(r.reason)
-                }
-            }
-        }
 
         fun onSaveRTMPConfig(config: RTMPConfig) {
             savedRTMPConfig = config
         }
 
         fun onStartRTMP(config: RTMPConfig) {
-            val target = this@StreamActivity.rtmpUrl
-            if (target.isNullOrEmpty()) {
-                rtmpError = "URL RTMP server belum siap, coba lagi sebentar."
-                return
-            }
-            if (state !is UiState.Connected) {
-                rtmpError = "GoPro belum tersambung."
-                return
-            }
             savedRTMPConfig = config
-            rtmpError = null
-            isRtmpLoading = true
+            isRtmpLoading = false
             isRtmpStreaming = false
-            // Memicu VlcVideoView dibuat ulang dengan sout RTMP aktif.
-            rtmpRestreamUrl = target
+            rtmpError = "Streaming RTMP dari kamera USB belum didukung (menyusul)."
         }
 
         val onStopRTMP: () -> Unit = {
-            rtmpRestreamUrl = null
             isRtmpStreaming = false
             isRtmpLoading = false
             rtmpStreamStatus = null
+            rtmpError = null
         }
 
-        // Coba sambung saat layar dibuka.
-        LaunchedEffect(Unit) { connect() }
-
-        // Dengarkan colok/cabut USB → otomatis sambung / putus.
-        DisposableEffect(Unit) {
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(c: Context?, intent: Intent?) {
-                    when (intent?.action) {
-                        UsbManager.ACTION_USB_DEVICE_ATTACHED -> connect()
-                        UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                            scope.launch { camera.disconnect() }
-                            state = UiState.Disconnected
-                        }
-                    }
-                }
-            }
-            val filter = IntentFilter().apply {
-                addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-                addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-            }
-            ContextCompat_registerReceiver(context, receiver, filter)
-            onDispose {
-                runCatching { context.unregisterReceiver(receiver) }
-                scope.launch { camera.disconnect() }
-            }
+        // GeoPoint stabil: identitas hanya berubah saat koordinat benar-benar
+        // berubah, supaya OsmdroidMapView tidak re-fire animateTo / rebuild peta
+        // pada tiap recomposition (mis. dari perubahan yaw).
+        val deviceGeoPoint = remember(location?.latitude, location?.longitude) {
+            GeoPoint(location?.latitude ?: -6.9828, location?.longitude ?: 110.4091)
         }
 
 
@@ -725,10 +705,7 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
                         .fillMaxHeight()
                         .fillMaxWidth()
                         .zIndex(if (splitMapToCamera)1f else 2f),
-                    deviceLocation = GeoPoint(
-                        location?.latitude ?: -6.9828,
-                        location?.longitude ?: 110.4091
-                    ),
+                    deviceLocation = deviceGeoPoint,
                     deviceMarkerIcon = R.drawable.ic_map,
                     pocYaw = yaw
                 )
@@ -753,72 +730,42 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
                         .zIndex(0.1f)
                 }
             ){
-                when (val s = state) {
-                    is UiState.Connected -> {
-                        VlcVideoView(
-                            streamUrl = s.result.streamUrl,
-                            rtmpUrl = rtmpRestreamUrl,
-                            onPlaying = {
-                                if (rtmpRestreamUrl != null) {
-                                    isRtmpLoading = false
-                                    isRtmpStreaming = true
-                                    rtmpStreamStatus = RtmpStreamStatus(
-                                        isStreaming = true,
-                                        resolution = RtmpResolution(
-                                            savedRTMPConfig.resolutionWidth,
-                                            savedRTMPConfig.resolutionHeight
-                                        ),
-                                        fps = 30,
-                                        vbps = savedRTMPConfig.bitrateKbps,
-                                    )
-                                }
-                            },
-                            onError = {
-                                if (rtmpRestreamUrl != null) {
-                                    rtmpError = "Gagal mengirim ke RTMP."
-                                    isRtmpLoading = false
-                                    isRtmpStreaming = false
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Black)
-                                .zIndex(if (splitMapToCamera) 2f else 1f),
-                        )
-                        Text(
-                            text = "Stream: ${s.result.streamUrl}  •  GoPro ${s.result.goProIp}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray,
-                        )
-                    }
+                // Preview kamera USB (UVC). Fragment selalu ter-mount agar tidak
+                // dibuat ulang; status koneksi memicu overlay placeholder.
+                UvcCameraView(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black)
+                        .zIndex(if (splitMapToCamera) 2f else 1f),
+                    onState = { connected, _ ->
+                        state = if (connected) UiState.Connected else UiState.Connecting
+                    },
+                )
 
-                    is UiState.Connecting -> VideoPlaceholder {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.size(12.dp))
-                            Text("Menyambung ke GoPro…", color = Color.White)
+                if (state !is UiState.Connected) {
+                    VideoPlaceholder {
+                        when (val s = state) {
+                            is UiState.Error -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Gagal membuka kamera", color = Color.White, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.size(8.dp))
+                                Text(
+                                    s.message,
+                                    color = Color(0xFFFFCDD2),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            }
+
+                            else -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.size(12.dp))
+                                Text("Colok kamera USB & izinkan akses…", color = Color.White)
+                            }
                         }
-                    }
-
-                    is UiState.Error -> VideoPlaceholder {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Gagal menyambung", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.size(8.dp))
-                            Text(
-                                s.message,
-                                color = Color(0xFFFFCDD2),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                            )
-                        }
-                    }
-
-                    is UiState.Disconnected -> VideoPlaceholder {
-                        Text("Colok GoPro via USB", color = Color.White)
                     }
                 }
 
@@ -834,21 +781,68 @@ class StreamActivity : ComponentActivity(), ConnectChecker {
                 Box(
                     modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
                 ){
-                    CardControlLive(
-                        centrifugoManager = centrifugoManager,
-                        openSettings = { showRTMPSettingsDialog = true },
-                        rtmpStreamStatus = rtmpStreamStatus,
-                        rtmpError = rtmpError,
-                        isRtmpLoading = isRtmpLoading,
-                        isRtmpStreaming = isRtmpStreaming
-                    )
+                    Column() {
+                        CardControlLive(
+                            centrifugoManager = centrifugoManager,
+                            openSettings = { showRTMPSettingsDialog = true },
+                            rtmpStreamStatus = rtmpStreamStatus,
+                            rtmpError = rtmpError,
+                            isRtmpLoading = isRtmpLoading,
+                            isRtmpStreaming = isRtmpStreaming
+                        )
+                        when (state) {
+                            is UiState.Connected -> {
+                                Text(
+                                    text = "    Kamera USB tersambung",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray,
+                                )
+                            }
 
+                            else -> {
+
+                            }
+                        }
+                    }
                 }
+
+//                Box(
+//                    modifier = Modifier.align(Alignment.CenterEnd).padding(16.dp)
+//                ){
+//                    Box(
+//                        Modifier
+//                            .background(
+//                                color = Color.Black.copy(alpha = 0.4f),
+//                                shape = RoundedCornerShape(size = 24.dp)
+//                            )
+//                            .border(
+//                                width = 2.dp,
+//                                color = if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary,
+//                                shape = RoundedCornerShape(size = 24.dp)
+//                            )
+//                            .clickable {
+//                                showDialogCall = true
+//                            }
+//                            .width(48.dp)
+//                            .height(48.dp)
+//                            .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
+//                    ) {
+//                        Image(
+//                            modifier = Modifier.align(Alignment.Center),
+//                            painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
+//                            contentDescription = null,
+//                            colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
+//                        )
+//                    }
+//                }
             }
 
 
 
-//            Column(
+
+
+
+//              Column(
 //                verticalArrangement = Arrangement.SpaceBetween,
 //                modifier = Modifier
 //                    .align(Alignment.TopCenter)
