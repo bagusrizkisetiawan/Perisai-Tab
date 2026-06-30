@@ -72,17 +72,17 @@ class CameraPreviewFragment : CameraFragment() {
             if (client != null && enc != null && tv != null && tv.isAvailable) {
                 try {
                     var bmp = captureBitmap
-                    if (bmp == null || bmp.width != TARGET_WIDTH || bmp.height != TARGET_HEIGHT) {
-                        bmp = Bitmap.createBitmap(TARGET_WIDTH, TARGET_HEIGHT, Bitmap.Config.ARGB_8888)
+                    if (bmp == null || bmp.width != CAPTURE_WIDTH || bmp.height != CAPTURE_HEIGHT) {
+                        bmp = Bitmap.createBitmap(CAPTURE_WIDTH, CAPTURE_HEIGHT, Bitmap.Config.ARGB_8888)
                         captureBitmap = bmp
                     }
                     tv.getBitmap(bmp)
                     var buf = argbBuf
-                    if (buf == null || buf.size != TARGET_WIDTH * TARGET_HEIGHT) {
-                        buf = IntArray(TARGET_WIDTH * TARGET_HEIGHT)
+                    if (buf == null || buf.size != CAPTURE_WIDTH * CAPTURE_HEIGHT) {
+                        buf = IntArray(CAPTURE_WIDTH * CAPTURE_HEIGHT)
                         argbBuf = buf
                     }
-                    bmp.getPixels(buf, 0, TARGET_WIDTH, 0, 0, TARGET_WIDTH, TARGET_HEIGHT)
+                    bmp.getPixels(buf, 0, CAPTURE_WIDTH, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT)
                     if (frameCount < 3) Log.d(TAG, "capture frame #$frameCount")
                     frameCount++
                     enc.encodeArgb(buf)
@@ -146,8 +146,8 @@ class CameraPreviewFragment : CameraFragment() {
 
         // Buat encoder kita sendiri.
         val enc = Nv21H264Encoder(
-            width = TARGET_WIDTH,
-            height = TARGET_HEIGHT,
+            width = CAPTURE_WIDTH,
+            height = CAPTURE_HEIGHT,
             fps = CAPTURE_FPS,
             bitrate = DEFAULT_BITRATE,
             onConfig = { sps, pps ->
@@ -211,8 +211,8 @@ class CameraPreviewFragment : CameraFragment() {
             .setCameraStrategy(CameraUvcStrategy(requireContext()))
             .setCameraRequest(
                 CameraRequest.Builder()
-                    .setPreviewWidth(TARGET_WIDTH)
-                    .setPreviewHeight(TARGET_HEIGHT)
+                    .setPreviewWidth(PREVIEW_WIDTH)
+                    .setPreviewHeight(PREVIEW_HEIGHT)
                     .create()
             )
             .setDefaultRotateType(RotateType.ANGLE_0)
@@ -249,15 +249,19 @@ class CameraPreviewFragment : CameraFragment() {
     private companion object {
         const val TAG = "UvcRtmp"
 
-        // Resolusi capture untuk RTMP. Diturunkan dari 720p → 540p supaya
-        // getBitmap + konversi ARGB→YUV jauh lebih ringan = lebih mulus & delay
-        // turun. Kalau masih patah, turunkan lagi ke 640×360.
-        const val TARGET_WIDTH = 960
-        const val TARGET_HEIGHT = 540
-        const val DEFAULT_BITRATE = 2_000_000
+        // Resolusi PREVIEW kamera (yang tampil di layar). Pakai 720p 16:9 agar
+        // preview tajam & tidak jadi kotak 4:3. Ini terpisah dari resolusi capture.
+        const val PREVIEW_WIDTH = 1280
+        const val PREVIEW_HEIGHT = 720
 
-        // FPS capture dari TextureView. Lebih tinggi = lebih mulus, tapi konversi
-        // ARGB→YUV di CPU jadi beban; 24fps kompromi dengan resolusi 540p.
+        // Resolusi CAPTURE/stream (di-encode & dikirim RTMP). Lebih kecil dari
+        // preview supaya getBitmap + konversi ARGB→YUV ringan = mulus & delay
+        // rendah. Naikkan ke 1280×720 kalau mau stream lebih tajam (lebih berat).
+        const val CAPTURE_WIDTH = 960
+        const val CAPTURE_HEIGHT = 540
+        const val DEFAULT_BITRATE = 2_500_000
+
+        // FPS capture dari TextureView. 24fps kompromi mulus vs beban CPU.
         const val CAPTURE_FPS = 24
     }
 }
