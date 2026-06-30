@@ -3,14 +3,12 @@ package id.co.alphanusa.perisaitab
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.hardware.usb.UsbManager
 import android.location.Location
 import android.media.AudioManager
 import android.os.BatteryManager
@@ -23,9 +21,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,15 +50,12 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -91,18 +84,13 @@ import id.co.alphanusa.perisaitab.ui.components.RTMPConfig
 import id.co.alphanusa.perisaitab.ui.components.RTMPControl
 import id.co.alphanusa.perisaitab.ui.components.RtmpResolution
 import id.co.alphanusa.perisaitab.ui.components.RtmpStreamStatus
-import id.co.alphanusa.perisaitab.ui.components.TacticalContainer
 import id.co.alphanusa.perisaitab.ui.components.UvcCameraView
-import id.co.alphanusa.perisaitab.ui.components.VlcVideoView
 import id.co.alphanusa.perisaitab.ui.components.backgroundColor
-import id.co.alphanusa.perisaitab.ui.components.colorPrimary
-import id.co.alphanusa.perisaitab.ui.components.successColor
 import id.co.alphanusa.perisaitab.ui.theme.PERISAITABTheme
 import id.co.alphanusa.perisaitab.ui.viewmodel.LivekitViewModel
 import id.co.alphanusa.perisaitab.ui.viewmodel.LivekitViewModelFactory
 import id.co.alphanusa.perisaitab.ui.viewmodel.UserViewModel
 import id.co.alphanusa.perisaitab.ui.viewmodel.UserViewModelFactory
-import id.co.alphanusa.perisaitab.utils.GoProUsbCamera
 import id.co.alphanusa.perisaitab.utils.HuaweiLocationHelper
 import id.co.alphanusa.perisaitab.utils.ILocationHelper
 import id.co.alphanusa.perisaitab.utils.NativeLocationHelper
@@ -255,16 +243,20 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
                                 val orientationValues = FloatArray(3)
                                 SensorManager.getOrientation(rotationMatrix, orientationValues)
 
-                                val newYaw = Math.toDegrees(orientationValues[0].toDouble()).toFloat()
-                                val newPitch = Math.toDegrees(orientationValues[1].toDouble()).toFloat()
-                                val newRoll = Math.toDegrees(orientationValues[2].toDouble()).toFloat()
+                                val newYaw =
+                                    Math.toDegrees(orientationValues[0].toDouble()).toFloat()
+                                val newPitch =
+                                    Math.toDegrees(orientationValues[1].toDouble()).toFloat()
+                                val newRoll =
+                                    Math.toDegrees(orientationValues[2].toDouble()).toFloat()
 
                                 // Throttle: hanya update state (→ recomposition) bila
                                 // perubahan cukup besar. Sensor memicu puluhan event/detik;
                                 // tanpa throttle, peta dibangun ulang terus → lag.
-                                val changed = kotlin.math.abs(newYaw - yaw) >= SENSOR_UPDATE_THRESHOLD_DEG ||
-                                    kotlin.math.abs(newPitch - pitch) >= SENSOR_UPDATE_THRESHOLD_DEG ||
-                                    kotlin.math.abs(newRoll - roll) >= SENSOR_UPDATE_THRESHOLD_DEG
+                                val changed =
+                                    kotlin.math.abs(newYaw - yaw) >= SENSOR_UPDATE_THRESHOLD_DEG ||
+                                            kotlin.math.abs(newPitch - pitch) >= SENSOR_UPDATE_THRESHOLD_DEG ||
+                                            kotlin.math.abs(newRoll - roll) >= SENSOR_UPDATE_THRESHOLD_DEG
                                 if (changed) {
                                     yaw = newYaw
                                     pitch = newPitch
@@ -617,7 +609,6 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
         var showRTMPSettingsDialog by remember { mutableStateOf(false) }
 
 
-
         val factory = remember(livekitApiService) { LivekitViewModelFactory(livekitApiService) }
         val livekitViewModel: LivekitViewModel = viewModel(factory = factory)
         val token by livekitViewModel.livekitToken.collectAsState()
@@ -639,27 +630,38 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
         // Status koneksi kamera USB (UVC). Dikelola oleh libausbc via UvcCameraView.
         var state by remember { mutableStateOf<UiState>(UiState.Connecting) }
 
-        // ── State RTMP ───────────────────────────────────────────────────────
-        // Catatan: dengan sumber UVC (kamera USB), push RTMP perlu mekanisme
-        // encoder tersendiri. Untuk saat ini UI RTMP tetap ada tapi belum aktif.
+        // ── State RTMP (kirim video kamera USB → server RTMP) ────────────────
         var savedRTMPConfig by remember { mutableStateOf(RTMPConfig()) }
         var rtmpStreamStatus by remember { mutableStateOf<RtmpStreamStatus?>(null) }
         var rtmpError by remember { mutableStateOf<String?>(null) }
         var isRtmpLoading by remember { mutableStateOf(false) }
         var isRtmpStreaming by remember { mutableStateOf(false) }
+        // URL RTMP aktif → memicu UvcCameraView mulai mengirim. null = berhenti.
+        var rtmpRestreamUrl by remember { mutableStateOf<String?>(null) }
 
         fun onSaveRTMPConfig(config: RTMPConfig) {
             savedRTMPConfig = config
         }
 
         fun onStartRTMP(config: RTMPConfig) {
+            if (state !is UiState.Connected) {
+                rtmpError = "Kamera USB belum siap."
+                return
+            }
+            val target = this@StreamActivity.rtmpUrl
+            if (target.isNullOrEmpty()) {
+                rtmpError = "URL RTMP server belum siap, coba lagi sebentar."
+                return
+            }
             savedRTMPConfig = config
-            isRtmpLoading = false
+            rtmpError = null
+            isRtmpLoading = true
             isRtmpStreaming = false
-            rtmpError = "Streaming RTMP dari kamera USB belum didukung (menyusul)."
+            rtmpRestreamUrl = target
         }
 
         val onStopRTMP: () -> Unit = {
+            rtmpRestreamUrl = null
             isRtmpStreaming = false
             isRtmpLoading = false
             rtmpStreamStatus = null
@@ -682,64 +684,65 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
         ) {
             // ── Camera Preview ──────────────────────────────────────────────
 
-
             Box(
                 modifier =
-                    if (splitMapToCamera){
-                        Modifier
-                            .width(300.dp)
-                            .height(200.dp)
-                            .align(Alignment.BottomStart)
-                            .padding(16.dp)
-                            .zIndex(0.2f)
-                    }else{
-                        Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth()
-                            .zIndex(0.1f)
-                    }
-                ,
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth()
+                        .zIndex(0.1f),
             ) {
                 OsmdroidMapView(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth()
-                        .zIndex(if (splitMapToCamera)1f else 2f),
+                        .zIndex(if (splitMapToCamera) 1f else 2f),
                     deviceLocation = deviceGeoPoint,
                     deviceMarkerIcon = R.drawable.ic_map,
                     pocYaw = yaw
-                )
-                Box(
-                    modifier = Modifier.fillMaxSize().clickable{splitMapToCamera = !splitMapToCamera}.zIndex(if (splitMapToCamera)2f else 1f)
                 )
             }
 
 
             Box(
-                modifier = if (!splitMapToCamera){
+                modifier =
                     Modifier
                         .width(300.dp)
-                        .height(200.dp)
+                        .height(184.dp)
                         .align(Alignment.BottomStart)
                         .padding(16.dp)
                         .zIndex(0.2f)
-                }else{
-                    Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth()
-                        .zIndex(0.1f)
-                }
-            ){
+
+            ) {
                 // Preview kamera USB (UVC). Fragment selalu ter-mount agar tidak
                 // dibuat ulang; status koneksi memicu overlay placeholder.
                 UvcCameraView(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color.Black)
-                        .zIndex(if (splitMapToCamera) 2f else 1f),
+                        .background(Color.Black),
                     onState = { connected, _ ->
                         state = if (connected) UiState.Connected else UiState.Connecting
+                    },
+                    rtmpUrl = rtmpRestreamUrl,
+                    onRtmpState = { live, loading, error ->
+                        isRtmpStreaming = live
+                        isRtmpLoading = loading
+                        rtmpError = error
+                        rtmpStreamStatus = if (live) {
+                            RtmpStreamStatus(
+                                isStreaming = true,
+                                resolution = RtmpResolution(
+                                    DEFAULT_STREAM_WIDTH,
+                                    DEFAULT_STREAM_HEIGHT
+                                ),
+                                fps = 30,
+                                vbps = savedRTMPConfig.bitrateKbps,
+                            )
+                        } else {
+                            null
+                        }
+                        // Jika gagal/terputus, lepas URL agar bisa start ulang.
+                        if (!live && !loading) rtmpRestreamUrl = null
                     },
                 )
 
@@ -747,7 +750,11 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
                     VideoPlaceholder {
                         when (val s = state) {
                             is UiState.Error -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Gagal membuka kamera", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Gagal membuka kamera",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Spacer(Modifier.size(8.dp))
                                 Text(
                                     s.message,
@@ -768,19 +775,19 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
                         }
                     }
                 }
-
-                Box(
-                    modifier = Modifier.fillMaxSize().clickable{splitMapToCamera = !splitMapToCamera}.zIndex(if (splitMapToCamera)1f else 2f)
-                )
             }
 
 
             Box(
-                modifier = Modifier.fillMaxSize().zIndex(0.3f)
-            ){
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(0.3f)
+            ) {
                 Box(
-                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
-                ){
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp)
+                ) {
                     Column() {
                         CardControlLive(
                             centrifugoManager = centrifugoManager,
@@ -793,7 +800,7 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
                         when (state) {
                             is UiState.Connected -> {
                                 Text(
-                                    text = "    Kamera USB tersambung",
+                                    text = "Kamera USB tersambung",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.Gray,
                                 )
@@ -838,236 +845,6 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
             }
 
 
-
-
-
-
-//              Column(
-//                verticalArrangement = Arrangement.SpaceBetween,
-//                modifier = Modifier
-//                    .align(Alignment.TopCenter)
-//                    .fillMaxWidth()
-//            ) {
-//                ConnectionStatusBar(
-//                    username = user?.Name?.trim(),
-//                    connectionState = connectionState,
-//                    onLogoutClick = {
-//                        val intent = Intent(context, MainActivity::class.java)
-//                        intent.flags =
-//                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-//                        context.startActivity(intent)
-//                    }
-//                )
-//
-//                Row(
-//                    modifier = Modifier
-//                        .fillMaxWidth()
-//                        .padding(16.dp),
-//                    horizontalArrangement = Arrangement.SpaceBetween,
-//                ) {
-//                    Box(
-//                        modifier = Modifier
-//                            .width(100.dp)
-//                            .height(100.dp),
-//                    ) {
-//                        if (!showDialogMap){
-//                            OsmdroidMapView(
-//                                modifier = Modifier
-//                                    .fillMaxHeight()
-//                                    .fillMaxWidth(),
-//                                deviceLocation = GeoPoint(
-//                                    location?.latitude ?: -6.9828,
-//                                    location?.longitude ?: 110.4091
-//                                ),
-//                                deviceMarkerIcon = R.drawable.ic_map,
-//                                pocYaw = yaw
-//                            )
-//                        }
-//                        Box(
-//                            modifier = Modifier
-//                                .fillMaxSize()
-//                                .clickable { showDialogMap = true }
-//                        )
-//                    }
-//                    if (isStreaming) {
-//                        AlertStream()
-//                    }
-//                }
-//            }
-//
-//            // ── Bottom Bar: Lokasi + Tombol ─────────────────────────────────
-//            Column(
-//                modifier = Modifier
-//                    .align(Alignment.BottomCenter)
-//                    .fillMaxWidth()
-//                    .hazeChild(state = hazeState, style = HazeMaterials.ultraThin())
-//                    .background(color = Color(0x80070C28))
-//                    .padding(horizontal = 16.dp, vertical = 24.dp),
-//                verticalArrangement = Arrangement.spacedBy(8.dp)
-//            ) {
-//
-//                Row(
-//                    modifier = Modifier.fillMaxWidth(),
-//                    horizontalArrangement = Arrangement.SpaceBetween,
-//                    verticalAlignment = Alignment.CenterVertically
-//                ) {
-//                    // Tombol Stream
-//
-//                    if (livekitShouldConnect && !token.isNullOrEmpty()) {
-//                        Button(
-//                            onClick = onStreamClick,
-//                            enabled = hasPermissions,
-//                            modifier = Modifier
-//                                .width(44.dp)
-//                                .height(40.dp),
-//                            shape = RoundedCornerShape(2.dp),
-//                            contentPadding = PaddingValues(0.dp),
-//                            colors = ButtonDefaults.buttonColors(
-//                                containerColor = if (isStreaming) dangerColor else colorPrimary,
-//                                disabledContainerColor = Color.Gray
-//                            )
-//                        ) {
-//                            Row(
-//                                modifier = Modifier.fillMaxWidth(),
-//                                verticalAlignment = Alignment.CenterVertically,
-//                                horizontalArrangement = Arrangement.Center
-//                            ) {
-//                                Image(
-//                                    painter = painterResource(id = if (isStreaming) R.drawable.outline_stop_circle_24 else R.drawable.outline_smart_display_24),
-//                                    contentDescription = null,
-//                                    colorFilter = ColorFilter.tint(if (isStreaming) Color.White else backgroundColor)
-//                                )
-//                            }
-//
-//                        }
-//                        Spacer(modifier = Modifier.width(8.dp))
-//                        Box(
-//                            Modifier
-//                                .clickable {
-//                                    showStopStreamDialog = true
-//                                }
-//                                .border(
-//                                    width = 1.dp,
-//                                    color = if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary,
-//                                    shape = RoundedCornerShape(size = 2.dp)
-//                                )
-//                                .weight(1f)
-//                                .height(40.dp)
-//                                .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
-//                        ) {
-//                            Row(
-//                                modifier = Modifier
-//                                    .fillMaxWidth()
-//                                    .fillMaxHeight(),
-//                                horizontalArrangement = Arrangement.Start,
-//                                verticalAlignment = Alignment.CenterVertically,
-//                            ) {
-//                                Image(
-//                                    painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
-//                                    contentDescription = null,
-//                                    colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
-//                                )
-//                                Spacer(modifier = Modifier.width(8.dp))
-//                                if (listUserSpeaking.isNotEmpty()) {
-//                                    Text(
-//                                        text = "Speaking: " + listUserSpeaking.joinToString(", "),
-//                                        color = successColor,
-//                                        fontSize = 10.sp,
-//                                        maxLines = 1,
-//                                        overflow = TextOverflow.Ellipsis
-//                                    )
-//                                } else {
-//                                    Text(
-//                                        text = "Speaking: -",
-//                                        color = successColor,
-//                                        fontSize = 10.sp,
-//                                        maxLines = 1,
-//                                        overflow = TextOverflow.Ellipsis
-//                                    )
-//                                }
-//                            }
-//                        }
-//                    } else {
-//                        Button(
-//                            onClick = onStreamClick,
-//                            enabled = hasPermissions,
-//                            modifier = Modifier
-//                                .weight(1f)
-//                                .height(40.dp),
-//                            shape = RoundedCornerShape(2.dp),
-//                            colors = ButtonDefaults.buttonColors(
-//                                containerColor = if (isStreaming) dangerColor else colorPrimary,
-//                                disabledContainerColor = Color.Gray
-//                            )
-//                        ) {
-//                            Row(
-//                                verticalAlignment = Alignment.CenterVertically,
-//                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-//                            ) {
-//                                Image(
-//                                    painter = painterResource(id = if (isStreaming) R.drawable.outline_stop_circle_24 else R.drawable.outline_smart_display_24),
-//                                    contentDescription = null,
-//                                    colorFilter = ColorFilter.tint(if (isStreaming) Color.White else backgroundColor)
-//                                )
-//                                Text(
-//                                    text = if (isStreaming) "Stop Stream" else "Start Stream",
-//                                    color = if (isStreaming) Color.White else backgroundColor,
-//                                    fontSize = 12.sp,
-//                                    fontWeight = FontWeight.Bold
-//                                )
-//                            }
-//
-//                        }
-//                        Spacer(modifier = Modifier.width(8.dp))
-//                        Box(
-//                            Modifier
-//                                .clickable {
-//                                    showStopStreamDialog = true
-//                                }
-//                                .border(
-//                                    width = 1.dp,
-//                                    color = colorPrimary,
-//                                    shape = RoundedCornerShape(size = 2.dp)
-//                                )
-//                                .width(44.dp)
-//                                .height(40.dp)
-//                                .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
-//                        ) {
-//                            Image(
-//                                modifier = Modifier.align(Alignment.Center),
-//                                painter = painterResource(id = R.drawable.outline_call_24),
-//                                contentDescription = null,
-//                                colorFilter = ColorFilter.tint(colorPrimary)
-//                            )
-//                        }
-//                    }
-//
-//                    Spacer(modifier = Modifier.width(8.dp))
-//
-//                    Box(
-//                        Modifier
-//                            .clickable {
-//                                onSwitchCamera()
-//                            }
-//                            .border(
-//                                width = 1.dp,
-//                                color = colorPrimary,
-//                                shape = RoundedCornerShape(size = 2.dp)
-//                            )
-//                            .width(44.dp)
-//                            .height(40.dp)
-//                            .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
-//                    ) {
-//                        Image(
-//                            modifier = Modifier.align(Alignment.Center),
-//                            painter = painterResource(id = R.drawable.outline_flip_camera_ios_24),
-//                            contentDescription = null,
-//                            colorFilter = ColorFilter.tint(colorPrimary)
-//                        )
-//                    }
-//                }
-//            }
-
             RTMPControl(
                 isVisible = showRTMPSettingsDialog,
                 onDismiss = { showRTMPSettingsDialog = false },
@@ -1084,117 +861,6 @@ class StreamActivity : FragmentActivity(), ConnectChecker {
                 savedRTMPConfig = savedRTMPConfig,
                 onStopRTPM = onStopRTMP
             )
-            val settings = AppSettingsManager.getInstance(context)
-
-
-
-
-            if (livekitShouldConnect && !token.isNullOrEmpty()) {
-                RoomScope(
-                    url = settings.getLivekitUrl(),
-                    token = token!!,
-                    audio = true,
-                    video = false,
-                    connect = true,
-                ) {
-
-                    // 1. Track lokal (mic)
-                    val localTrackRefs by rememberTracks(sources = listOf(Track.Source.MICROPHONE))
-                    val audioTracks = localTrackRefs.filter {
-                        it.publication?.kind == Track.Kind.AUDIO
-                    }
-
-                    // 2. Remote audio tracks (sudah subscribed)
-                    val remoteAudioTrackRefs by rememberTracks(
-                        sources = listOf(Track.Source.MICROPHONE),
-                        onlySubscribed = true
-                    )
-                    val remoteAudioTracks = remoteAudioTrackRefs.filter {
-                        it.participant is RemoteParticipant
-                    }
-
-                    // ── Effect: Mic lokal ──────────────────────────────────────────────────
-                    // ✅ Pakai localTrackRefs sebagai dependency supaya tunggu mic track ter-publish
-                    LaunchedEffect(localTrackRefs, livekitIsMuted) {
-                        localTrackRefs.forEach { trackRef ->
-                            val track = trackRef.publication?.track
-                            if (track != null) {
-                                it.localParticipant.setMicrophoneEnabled(!livekitIsMuted)
-                                Log.d("LiveKit", "🎤 Mic enabled = ${!livekitIsMuted}")
-                            }
-                        }
-                    }
-
-                    // ── Effect: Speaker mute via AudioManager (level system) ───────────────
-                    LaunchedEffect(livekitIsSpeakerMuted) {
-                        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                        am.adjustStreamVolume(
-                            AudioManager.STREAM_VOICE_CALL,
-                            if (livekitIsSpeakerMuted) AudioManager.ADJUST_MUTE
-                            else AudioManager.ADJUST_UNMUTE,
-                            0
-                        )
-                        Log.d("LiveKit", "🔇 STREAM_VOICE_CALL muted=$livekitIsSpeakerMuted")
-                    }
-
-                    // ── Effect: Speaker mute via track volume (level LiveKit, per-track) ───
-                    for (trackRef in remoteAudioTracks) {
-                        val sid = trackRef.publication?.sid ?: continue
-                        key(sid) {
-                            val track = trackRef.publication?.track
-                            LaunchedEffect(livekitIsSpeakerMuted, track) {
-                                val audioTrack = track as? RemoteAudioTrack
-                                if (audioTrack != null) {
-                                    val vol = if (livekitIsSpeakerMuted) 0.0 else 1.0
-                                    audioTrack.setVolume(vol)
-                                    Log.d("LiveKit", "🔊 Track $sid → volume=$vol")
-                                } else {
-                                    Log.w("LiveKit", "⚠️ Track $sid bukan RemoteAudioTrack: $track")
-                                }
-                            }
-                        }
-                    }
-                    // Dialog hanya terima data, tidak kelola koneksi
-                    if (showStopStreamDialog) {
-                        DialogCall(
-                            onDismiss = { showStopStreamDialog = false },
-                            audioTracks = audioTracks,
-                            isMuted = livekitIsMuted,
-                            isSpeakerMuted = livekitIsSpeakerMuted,
-                            onMuteToggle = onLivekitMuteToggle,
-                            onSpeakerToggle = onLivekitSpeakerToggle,
-                            onEndCall = {
-                                onLivekitDisconnect()
-                                livekitViewModel.clearLivekitToken()
-                            },
-                            onJoin = null
-                        )
-                    }
-                }
-            }
-
-            if (showStopStreamDialog && !livekitShouldConnect) {
-                DialogCall(
-                    onDismiss = { showStopStreamDialog = false },
-                    audioTracks = emptyList(),
-                    isMuted = livekitIsMuted,
-                    isSpeakerMuted = livekitIsSpeakerMuted,     // ← fix: tambah yang hilang
-                    onMuteToggle = onLivekitMuteToggle,
-                    onSpeakerToggle = onLivekitSpeakerToggle,   // ← fix: tambah yang hilang
-                    onEndCall = { },
-                    onJoin = { livekitViewModel.fetchLivekitToken() }
-                )
-            }
-            if (showDialogMap) {
-                DialogMap(
-                    onDismiss = { showDialogMap = false }, deviceLocation = GeoPoint(
-                        location?.latitude ?: -6.9828,
-                        location?.longitude ?: 110.4091
-                    ),
-                    deviceMarkerIcon = R.drawable.ic_map,
-                    pocYaw = yaw
-                )
-            }
         }
     }
 }
