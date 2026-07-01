@@ -26,6 +26,8 @@ fun UvcCameraView(
     onState: (Boolean, String) -> Unit = { _, _ -> },
     rtmpUrl: String? = null,
     onRtmpState: (Boolean, Boolean, String?) -> Unit = { _, _, _ -> },
+    isRecording: Boolean = false,
+    onRecordState: (Boolean, Boolean?, String?) -> Unit = { _, _, _ -> },
 ) {
     val activity = LocalContext.current as FragmentActivity
 
@@ -41,6 +43,7 @@ fun UvcCameraView(
                 val fragment = CameraPreviewFragment().apply {
                     this.onState = onState
                     this.onRtmpState = onRtmpState
+                    this.onRecordState = onRecordState
                 }
                 fm.beginTransaction()
                     .replace(view.id, fragment)
@@ -48,6 +51,7 @@ fun UvcCameraView(
             } else {
                 existing.onState = onState
                 existing.onRtmpState = onRtmpState
+                existing.onRecordState = onRecordState
             }
         },
     )
@@ -57,6 +61,13 @@ fun UvcCameraView(
         val frag = activity.supportFragmentManager
             .findFragmentById(R.id.camera_container) as? CameraPreviewFragment
         if (rtmpUrl != null) frag?.startRtmp(rtmpUrl) else frag?.stopRtmp()
+    }
+
+    // Mulai / hentikan rekam saat isRecording berubah.
+    LaunchedEffect(isRecording) {
+        val frag = activity.supportFragmentManager
+            .findFragmentById(R.id.camera_container) as? CameraPreviewFragment
+        if (isRecording) frag?.startRecording() else frag?.stopRecording()
     }
 
     DisposableEffect(Unit) {

@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -532,6 +533,9 @@ class StreamActivity : FragmentActivity() {
         // URL RTMP aktif → memicu UvcCameraView mulai mengirim. null = berhenti.
         var rtmpRestreamUrl by remember { mutableStateOf<String?>(null) }
 
+        // ── State rekam video (MP4 → galeri PERISAI VIDEO) ───────────────────
+        var isRecording by remember { mutableStateOf(false) }
+
         fun onStartRTMP(config: RTMPConfig) {
             if (state !is UiState.Connected) {
                 rtmpError = "Kamera USB belum siap."
@@ -627,6 +631,13 @@ class StreamActivity : FragmentActivity() {
                         }
                         // Jika gagal/terputus, lepas URL agar bisa start ulang.
                         if (!live && !loading) rtmpRestreamUrl = null
+                    },
+                    isRecording = isRecording,
+                    onRecordState = { recording, savedOk, message ->
+                        isRecording = recording
+                        if (!message.isNullOrEmpty()) {
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
                     },
                 )
 
@@ -745,28 +756,47 @@ class StreamActivity : FragmentActivity() {
                         .align(Alignment.CenterEnd)
                         .padding(16.dp)
                 ) {
-                    Box(
-                        Modifier
-                            .background(
-                                color = Color.Black.copy(alpha = 0.4f),
-                                shape = RoundedCornerShape(size = 24.dp)
+                    Column() {
+                        Box(
+                            Modifier
+                                .background(
+                                    color = Color.Black.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary,
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .clickable { showDialogCall = true }
+                                .width(48.dp)
+                                .height(48.dp)
+                                .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
+                        ) {
+                            Image(
+                                modifier = Modifier.align(Alignment.Center),
+                                painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
+                                contentDescription = null,
+                                colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
                             )
-                            .border(
-                                width = 2.dp,
-                                color = if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary,
-                                shape = RoundedCornerShape(size = 24.dp)
-                            )
-                            .clickable { showDialogCall = true }
-                            .width(48.dp)
-                            .height(48.dp)
-                            .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
-                    ) {
-                        Image(
-                            modifier = Modifier.align(Alignment.Center),
-                            painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
-                            contentDescription = null,
-                            colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
-                        )
+                        }
+
+
+                        Button(
+                            onClick = {
+                                if (!isRecording && state !is UiState.Connected) {
+                                    Toast.makeText(
+                                        context,
+                                        "Kamera USB belum siap",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    isRecording = !isRecording
+                                }
+                            }
+                        ) {
+                            Text(if (isRecording) "Stop record" else "Record video")
+                        }
                     }
                 }
             }

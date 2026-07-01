@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.util.Log
+import java.io.File
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +35,9 @@ class CameraPreviewFragment : CameraFragment() {
     /** Callback status RTMP: (live?, loading?, error?). */
     var onRtmpState: ((Boolean, Boolean, String?) -> Unit)? = null
 
+    /** Callback status rekam: (recording?, savedOk?, pesan?). savedOk null = baru mulai. */
+    var onRecordState: ((Boolean, Boolean?, String?) -> Unit)? = null
+
     private var viewContainer: FrameLayout? = null
     private var textureView: AspectRatioTextureView? = null
 
@@ -57,18 +61,23 @@ class CameraPreviewFragment : CameraFragment() {
     private var encoder: Nv21H264Encoder? = null
     private var frameCount = 0
 
+    // ── Rekam video (MP4 → galeri) ─────────────────────────────────────────────
+    @Volatile private var recorder: Mp4Recorder? = null
+    private var recordFile: File? = null
+
     // Capture loop: ambil frame dari TextureView (yang sudah menampilkan kamera),
     // independen dari callback frame libausbc yang tidak jalan di device ini.
+    // Satu loop melayani DUA konsumen: encoder RTMP dan/atau recorder MP4.
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var captureBitmap: Bitmap? = null
 
     private val captureRunnable = object : Runnable {
         override fun run() {
-            val client = rtmpClient
             val enc = encoder
+            val rec = recorder
             val tv = textureView
-            if (client != null && enc != null && tv != null && tv.isAvailable) {
+            if ((enc != null || rec != null) && tv != null && tv.isAvailable) {
                 try {
                     var bmp = captureBitmap
                     if (bmp == null || bmp.width != CAPTURE_WIDTH || bmp.height != CAPTURE_HEIGHT) {
@@ -76,18 +85,39 @@ class CameraPreviewFragment : CameraFragment() {
                         captureBitmap = bmp
                     }
                     tv.getBitmap(bmp)
-                    if (frameCount < 3) Log.d(TAG, "capture frame #$frameCount")
                     frameCount++
                     // Konversi ARGB→NV12 native (libyuv) → cukup ringan untuk 1080p.
-                    enc.encodeBitmap(bmp)
+                    // getBitmap sekali, di-share ke stream + rekam.
+                    enc?.encodeBitmap(bmp)
+                    rec?.encodeBitmap(bmp)
                 } catch (e: Exception) {
                     Log.e(TAG, "capture error: ${e.message}")
                 }
             }
-            if (rtmpClient != null) {
+            if (encoder != null || recorder != null) {
                 captureHandler?.postDelayed(this, 1000L / CAPTURE_FPS)
             }
         }
+    }
+
+    /** Nyalakan capture loop bila belum jalan (dipakai stream & rekam). */
+    private fun ensureCaptureLoop() {
+        if (captureThread != null) return
+        val th = HandlerThread("uvc-capture").also { it.start() }
+        captureThread = th
+        val h = Handler(th.looper)
+        captureHandler = h
+        h.post(captureRunnable)
+        Log.d(TAG, "capture loop dimulai @${CAPTURE_FPS}fps")
+    }
+
+    /** Matikan capture loop hanya bila tidak ada stream maupun rekam. */
+    private fun stopCaptureLoopIfIdle() {
+        if (encoder != null || recorder != null) return
+        captureHandler?.removeCallbacks(captureRunnable)
+        captureHandler = null
+        runCatching { captureThread?.quitSafely() }
+        captureThread = null
     }
 
     /** Mulai kirim video kamera USB ke server RTMP. */
@@ -166,28 +196,70 @@ class CameraPreviewFragment : CameraFragment() {
         }
         encoder = enc
 
-        // Mulai capture loop dari TextureView.
-        val th = HandlerThread("uvc-capture").also { it.start() }
-        captureThread = th
-        val h = Handler(th.looper)
-        captureHandler = h
-        h.post(captureRunnable)
-        Log.d(TAG, "encoder start + capture loop dimulai @${CAPTURE_FPS}fps")
+        // Mulai (atau ikut) capture loop dari TextureView.
+        ensureCaptureLoop()
+        Log.d(TAG, "encoder start + capture loop @${CAPTURE_FPS}fps")
     }
 
-    /** Hentikan streaming RTMP (preview tetap jalan). */
+    /** Hentikan streaming RTMP (preview & rekam tetap jalan). */
     fun stopRtmp() {
         val client = rtmpClient ?: return
         rtmpClient = null
-        captureHandler?.removeCallbacks(captureRunnable)
-        captureHandler = null
-        runCatching { captureThread?.quitSafely() }
-        captureThread = null
         runCatching { encoder?.stop() }
         encoder = null
+        stopCaptureLoopIfIdle()
         runCatching { client.disconnect() }
         videoInfoSent = false
         pendingUrl = null
+    }
+
+    /** Mulai merekam video kamera USB ke file MP4 (nanti disimpan ke galeri). */
+    fun startRecording() {
+        if (recorder != null) return
+        if (!isCameraOpened()) {
+            onRecordState?.invoke(false, false, "Kamera belum siap")
+            return
+        }
+        val file = File(requireContext().cacheDir, "perisai_rec_${System.currentTimeMillis()}.mp4")
+        val rec = Mp4Recorder(CAPTURE_WIDTH, CAPTURE_HEIGHT, CAPTURE_FPS, DEFAULT_BITRATE, file)
+        val ok = runCatching { rec.start() }.isSuccess
+        if (!ok) {
+            onRecordState?.invoke(false, false, "Recorder gagal dibuat")
+            return
+        }
+        recorder = rec
+        recordFile = file
+        ensureCaptureLoop()
+        onRecordState?.invoke(true, null, null)
+        Log.d(TAG, "recording dimulai → ${file.name}")
+    }
+
+    /** Hentikan rekam, finalisasi MP4, lalu simpan ke galeri (background). */
+    fun stopRecording() {
+        val rec = recorder ?: return
+        recorder = null // capture loop berhenti menyuap rec mulai sekarang
+        val file = recordFile
+        recordFile = null
+        stopCaptureLoopIfIdle()
+
+        val ctx = requireContext().applicationContext
+        Thread {
+            val finalized = runCatching { rec.stop() }.getOrDefault(false)
+            val saved = if (finalized && file != null) {
+                saveVideoToGallery(ctx, file, "PERISAI_${System.currentTimeMillis()}.mp4")
+            } else {
+                runCatching { file?.delete() }
+                false
+            }
+            handler.post {
+                if (saved) {
+                    onRecordState?.invoke(false, true, "Tersimpan di galeri (PERISAI VIDEO)")
+                } else {
+                    onRecordState?.invoke(false, false, "Gagal menyimpan video")
+                }
+            }
+        }.start()
+        Log.d(TAG, "recording dihentikan, menyimpan…")
     }
 
     /**
@@ -237,6 +309,7 @@ class CameraPreviewFragment : CameraFragment() {
     override fun onDestroyView() {
         handler.removeCallbacks(poll)
         stopRtmp()
+        stopRecording()
         super.onDestroyView()
     }
 
