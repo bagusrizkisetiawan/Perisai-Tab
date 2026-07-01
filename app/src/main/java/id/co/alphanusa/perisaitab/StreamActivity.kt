@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Bundle
 import android.preference.PreferenceManager
 import android.util.Log
+import android.view.Surface
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -237,14 +238,37 @@ class StreamActivity : FragmentActivity() {
                     context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
                 val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
+                // Rotasi layar. Karena app dikunci landscape, biasanya ROTATION_90
+                // (atau ROTATION_270 bila HP diputar terbalik). Dipakai untuk remap
+                // sumbu sensor agar yaw dihitung relatif LAYAR (landscape), bukan
+                // orientasi natural HP (portrait) → arah tidak lagi miring 90°.
+                val displayRotation = displayRotation()
+
                 val listener = object : SensorEventListener {
                     override fun onSensorChanged(event: SensorEvent?) {
                         event?.let {
                             if (it.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
                                 val rotationMatrix = FloatArray(9)
                                 SensorManager.getRotationMatrixFromVector(rotationMatrix, it.values)
+
+                                // Remap sumbu sesuai rotasi layar (kompensasi landscape).
+                                val remapped = FloatArray(9)
+                                val (axisX, axisY) = when (displayRotation) {
+                                    Surface.ROTATION_90 ->
+                                        SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+                                    Surface.ROTATION_180 ->
+                                        SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+                                    Surface.ROTATION_270 ->
+                                        SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+                                    else ->
+                                        SensorManager.AXIS_X to SensorManager.AXIS_Y
+                                }
+                                SensorManager.remapCoordinateSystem(
+                                    rotationMatrix, axisX, axisY, remapped
+                                )
+
                                 val orientationValues = FloatArray(3)
-                                SensorManager.getOrientation(rotationMatrix, orientationValues)
+                                SensorManager.getOrientation(remapped, orientationValues)
 
                                 val newYaw =
                                     Math.toDegrees(orientationValues[0].toDouble()).toFloat()
@@ -416,6 +440,16 @@ class StreamActivity : FragmentActivity() {
     private fun getBatteryPercentage(): Int {
         val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         return batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+    }
+
+    /** Rotasi layar saat ini (Surface.ROTATION_*), kompatibel lintas versi. */
+    private fun displayRotation(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display?.rotation ?: Surface.ROTATION_0
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.rotation
+        }
     }
 
     private fun isHuaweiDevice(): Boolean {
