@@ -13,6 +13,8 @@ import android.media.AudioManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.os.StatFs
 import android.preference.PreferenceManager
 import android.util.Log
 import android.view.Surface
@@ -23,6 +25,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,8 +40,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -86,6 +90,7 @@ import id.co.alphanusa.perisaitab.ui.components.DialogCall
 import id.co.alphanusa.perisaitab.ui.components.OsmdroidMapView
 import id.co.alphanusa.perisaitab.ui.components.RTMPConfig
 import id.co.alphanusa.perisaitab.ui.components.RTMPControl
+import id.co.alphanusa.perisaitab.ui.components.RecordingButton
 import id.co.alphanusa.perisaitab.ui.components.RtmpResolution
 import id.co.alphanusa.perisaitab.ui.components.RtmpStreamStatus
 import id.co.alphanusa.perisaitab.ui.components.TacticalContainer
@@ -112,6 +117,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.GeoPoint
+import java.util.Locale
 
 
 // Resolusi default (dipakai hanya untuk menampilkan info status stream di UI;
@@ -257,10 +263,13 @@ class StreamActivity : FragmentActivity() {
                                 val (axisX, axisY) = when (displayRotation) {
                                     Surface.ROTATION_90 ->
                                         SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+
                                     Surface.ROTATION_180 ->
                                         SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+
                                     Surface.ROTATION_270 ->
                                         SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+
                                     else ->
                                         SensorManager.AXIS_X to SensorManager.AXIS_Y
                                 }
@@ -348,7 +357,11 @@ class StreamActivity : FragmentActivity() {
 
                         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
                         val maxMusic = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                        am.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic / 2, 0) // restore ke 50%
+                        am.setStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            maxMusic / 2,
+                            0
+                        ) // restore ke 50%
                     },
                     onLivekitMuteToggle = { livekitIsMuted = !livekitIsMuted },
                     onLivekitSpeakerToggle = { livekitIsSpeakerMuted = !livekitIsSpeakerMuted }
@@ -474,7 +487,7 @@ class StreamActivity : FragmentActivity() {
     // =========================================================================
 
     @Composable
-    fun     SimpleCameraScreen(
+    fun SimpleCameraScreen(
         location: Location?,
         yaw: Float,
         connectionState: CentrifugoConnectionState,
@@ -535,6 +548,19 @@ class StreamActivity : FragmentActivity() {
 
         // ── State rekam video (MP4 → galeri PERISAI VIDEO) ───────────────────
         var isRecording by remember { mutableStateOf(false) }
+
+        // Kontrol kamera di atas preview: muncul saat preview ditap, hilang
+        // sendiri setelah 5 detik.
+        var showPreviewControls by remember { mutableStateOf(false) }
+
+        // Sisa storage HP (di-refresh berkala; berkurang saat merekam).
+        var freeStorage by remember { mutableStateOf(freeStorageText()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                freeStorage = freeStorageText()
+                delay(5000)
+            }
+        }
 
         fun onStartRTMP(config: RTMPConfig) {
             if (state !is UiState.Connected) {
@@ -606,7 +632,7 @@ class StreamActivity : FragmentActivity() {
                 UvcCameraView(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(Color.Black),
                     onState = { connected, _ ->
                         state = if (connected) UiState.Connected else UiState.Connecting
@@ -662,12 +688,114 @@ class StreamActivity : FragmentActivity() {
                             else -> Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(
                                     color = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(Modifier.size(12.dp))
-                                Text("Colok kamera USB & izinkan akses…", color = Color.White)
+                                Text(
+                                    "Colok kamera USB & izinkan akses…",
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
                             }
                         }
+                    }
+                }
+
+                // Area tap transparan untuk MEMUNCULKAN kontrol (saat tersembunyi).
+                if (!showPreviewControls) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { showPreviewControls = true }
+                    )
+                }
+
+                // Overlay kontrol kamera. Muncul saat preview ditap, lalu hilang
+                // sendiri setelah 5 detik (atau saat area kosong ditap lagi).
+                if (showPreviewControls) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.4f),shape= RoundedCornerShape(8.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { showPreviewControls = false }
+                    ) {
+
+                        Box(
+                            modifier = Modifier.padding(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.6f),shape= RoundedCornerShape(2.dp))
+                                    .padding(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.outline_sd_card_24),
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(freeStorage, color = colorPrimary, fontSize = 10.sp)
+                                Text("Free", color = Color.White, fontSize = 10.sp)
+
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RecordingButton(
+                                isRecording = isRecording,
+                                recordingStatus = if (isRecording) "Recording" else "",
+                                onStartRecording = {
+                                    if (state !is UiState.Connected) {
+                                        Toast.makeText(
+                                            context,
+                                            "Kamera USB belum siap",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        isRecording = true
+                                    }
+                                },
+                                onStopRecording = { isRecording = false },
+                            )
+
+                            Spacer(Modifier.width(8.dp))
+                            Box(
+                                Modifier
+                                    .background(
+                                        color = Color.Black.copy(alpha = 0.6f),
+                                        shape=CircleShape
+                                    )
+                                    .clickable {
+                                    }
+                                    .width(56.dp)
+                                    .height(56.dp)
+                                    .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
+                            ) {
+                                Image(
+                                    modifier = Modifier.align(Alignment.Center),
+                                    painter = painterResource(id = R.drawable.outline_photo_camera_24),
+                                    contentDescription = null,
+                                    colorFilter = ColorFilter.tint(colorPrimary)
+                                )
+                            }
+                        }
+                    }
+
+                    // Timer auto-hide: reset tiap kali kontrol muncul.
+                    LaunchedEffect(Unit) {
+                        delay(5000)
+                        showPreviewControls = false
                     }
                 }
             }
@@ -779,23 +907,6 @@ class StreamActivity : FragmentActivity() {
                                 contentDescription = null,
                                 colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
                             )
-                        }
-
-
-                        Button(
-                            onClick = {
-                                if (!isRecording && state !is UiState.Connected) {
-                                    Toast.makeText(
-                                        context,
-                                        "Kamera USB belum siap",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } else {
-                                    isRecording = !isRecording
-                                }
-                            }
-                        ) {
-                            Text(if (isRecording) "Stop record" else "Record video")
                         }
                     }
                 }
@@ -931,4 +1042,18 @@ private fun VideoPlaceholder(content: @Composable () -> Unit) {
             .background(Color(0xFF1C1C1E)),
         contentAlignment = Alignment.Center,
     ) { content() }
+}
+
+/**
+ * Sisa penyimpanan internal HP (partisi data user) dalam GB, mis. "22.4 GB".
+ * Ini volume yang sama tempat rekaman disimpan.
+ */
+private fun freeStorageText(): String {
+    return try {
+        val stat = StatFs(Environment.getDataDirectory().path)
+        val gb = stat.availableBytes / 1_000_000_000.0
+        String.format(Locale.US, "%.1f GB", gb)
+    } catch (e: Exception) {
+        "-"
+    }
 }
