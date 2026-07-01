@@ -965,7 +965,7 @@ class StreamActivity : FragmentActivity() {
                 ) {
                     Row(
                         modifier = Modifier.padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Box(
                             Modifier
