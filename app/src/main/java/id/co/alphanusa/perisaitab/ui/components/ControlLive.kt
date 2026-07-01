@@ -91,7 +91,7 @@ fun CardControlLive(
 
 
     TacticalContainer(
-        modifier = modifier.height(74.dp),
+        modifier = modifier.height(68.dp),
         accentColor = borderColor,
         background = backgroundColor,
         borderWidth = borderWidth,
@@ -99,7 +99,7 @@ fun CardControlLive(
     ) {
         // Isi utama
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.Start,
         ) {
@@ -108,7 +108,7 @@ fun CardControlLive(
                 modifier = modifier
                     .wrapContentHeight()
                     .clip(shape = RoundedCornerShape(size = 2.dp))
-                    .padding( 4.dp),
+                    .padding( 2.dp),
 
                 ) {
                 Row(
@@ -130,7 +130,7 @@ fun CardControlLive(
                     Text(
                         text = textLiveConnect,
                         color = colorsLiveConnect,
-                        letterSpacing = 2.sp,
+                        letterSpacing = 1.sp,
                         fontSize = 10.sp
                     )
                 }
@@ -142,7 +142,7 @@ fun CardControlLive(
                 modifier = modifier
                     .wrapContentHeight()
                     .clip(shape = RoundedCornerShape(size = 2.dp))
-                    .padding( 4.dp),
+                    .padding( 2.dp),
 
                 ) {
                 Row(
@@ -164,7 +164,7 @@ fun CardControlLive(
                     Text(
                         text = textCentrifugoStatus.toString(),
                         color = colorCentrifugo as Color,
-                        letterSpacing = 2.sp,
+                        letterSpacing = 1.sp,
                         fontSize = 10.sp
                     )
                 }

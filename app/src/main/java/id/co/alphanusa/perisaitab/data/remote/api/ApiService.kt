@@ -7,6 +7,8 @@ import id.co.alphanusa.perisaitab.data.remote.response.CentrifugoTokenResponse
 import id.co.alphanusa.perisaitab.data.remote.response.DrawResponse
 import id.co.alphanusa.perisaitab.data.remote.response.LivekitResponse
 import id.co.alphanusa.perisaitab.data.remote.response.LoginResponse
+import id.co.alphanusa.perisaitab.data.remote.response.MissionBriefResponse
+import id.co.alphanusa.perisaitab.data.remote.response.MissionNoteResponse
 import id.co.alphanusa.perisaitab.data.remote.response.ParticipantsResponse
 import id.co.alphanusa.perisaitab.data.remote.response.PocResponse
 import id.co.alphanusa.perisaitab.data.remote.response.RefreshTokenResponse
@@ -52,6 +54,17 @@ interface ApiService {
 
     @GET("v1/livekit/participant")
     suspend fun generateListParticipant(): Response<ParticipantsResponse>
+
+    // ---- Mission Brief ----
+    @GET("v1/mission-brief/rundown")
+    suspend fun getMissionBriefRundown(): Response<MissionBriefResponse>
+
+    @GET("v1/mission-brief/note")
+    suspend fun getMissionBriefNotes(
+        @Query("page") page: Int = 1,
+        @Query("size") size: Int = 10,
+        @Query("populate") populate: String = "images",
+    ): Response<MissionNoteResponse>
 
     // ---- User / POC info ----
     @GET("v1/mobile/auth/me")

@@ -87,6 +87,7 @@ import id.co.alphanusa.perisaitab.realtime.CentrifugoClientManager
 import id.co.alphanusa.perisaitab.realtime.CentrifugoConnectionState
 import id.co.alphanusa.perisaitab.ui.components.CardControlLive
 import id.co.alphanusa.perisaitab.ui.components.DialogCall
+import id.co.alphanusa.perisaitab.ui.components.DialogMissionBrief
 import id.co.alphanusa.perisaitab.ui.components.OsmdroidMapView
 import id.co.alphanusa.perisaitab.ui.components.RTMPConfig
 import id.co.alphanusa.perisaitab.ui.components.RTMPControl
@@ -553,6 +554,9 @@ class StreamActivity : FragmentActivity() {
         // sendiri setelah 5 detik.
         var showPreviewControls by remember { mutableStateOf(false) }
 
+        // Dialog Mission Brief (rundown dari API).
+        var showMissionBrief by remember { mutableStateOf(false) }
+
         // Sisa storage HP (di-refresh berkala; berkurang saat merekam).
         var freeStorage by remember { mutableStateOf(freeStorageText()) }
         LaunchedEffect(Unit) {
@@ -719,7 +723,10 @@ class StreamActivity : FragmentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.4f),shape= RoundedCornerShape(8.dp))
+                            .background(
+                                Color.Black.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
@@ -731,7 +738,10 @@ class StreamActivity : FragmentActivity() {
                         ) {
                             Row(
                                 modifier = Modifier
-                                    .background(Color.Black.copy(alpha = 0.6f),shape= RoundedCornerShape(2.dp))
+                                    .background(
+                                        Color.Black.copy(alpha = 0.6f),
+                                        shape = RoundedCornerShape(2.dp)
+                                    )
                                     .padding(6.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -774,7 +784,7 @@ class StreamActivity : FragmentActivity() {
                                 Modifier
                                     .background(
                                         color = Color.Black.copy(alpha = 0.6f),
-                                        shape=CircleShape
+                                        shape = CircleShape
                                     )
                                     .clickable {
                                     }
@@ -812,7 +822,49 @@ class StreamActivity : FragmentActivity() {
                         .align(Alignment.TopStart)
                         .padding(16.dp)
                 ) {
-                    Column {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            TacticalContainer(
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(text = "Utara", fontSize = 8.sp, color = Color.White)
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_compas),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                        tint = Color.Unspecified
+                                    )
+                                }
+                            }
+
+                            TacticalContainer(
+                                modifier = Modifier.height(48.dp),
+                                onClick = { showMissionBrief = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 22.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_target_arrow_24_filled),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(28.dp),
+                                        tint = Color.Unspecified
+                                    )
+                                    Text(text = "Mission Brief", fontSize = 12.sp, color = Color.White)
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                            }
+                        }
                         CardControlLive(
                             centrifugoManager = centrifugoManager,
                             openSettings = { showRTMPSettingsDialog = true },
@@ -821,13 +873,6 @@ class StreamActivity : FragmentActivity() {
                             isRtmpLoading = isRtmpLoading,
                             isRtmpStreaming = isRtmpStreaming
                         )
-                        if (state is UiState.Connected) {
-                            Text(
-                                text = "Kamera USB tersambung",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray,
-                            )
-                        }
                     }
                 }
 
@@ -837,18 +882,58 @@ class StreamActivity : FragmentActivity() {
                         .align(Alignment.TopEnd)
                         .padding(16.dp)
                 ) {
-                    TacticalContainer(
-                        modifier = Modifier
-                            .width(64.dp)
-                            .height(42.dp),
-                        onClick = { showMenu = true }
+                    Row(
+                        modifier = Modifier.padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(R.drawable.charm_menu_meatball),
-                            contentDescription = null,
-                            modifier = Modifier.size(26.dp),
-                            tint = Color.White
-                        )
+                        Box(
+                            Modifier
+                                .background(
+                                    color = Color.Black.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary,
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .clickable { showDialogCall = true }
+                                .size(48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(26.dp),
+                                painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
+                                contentDescription = null,
+                                colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
+                            )
+                        }
+
+                        Box(
+                            Modifier
+                                .background(
+                                    color = Color.Black.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = colorPrimary,
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .clickable { showMenu = true }
+                                .size(48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+
+                            Icon(
+                                painter = painterResource(R.drawable.charm_menu_meatball),
+                                contentDescription = null,
+                                modifier = Modifier.size(26.dp),
+                                tint = colorPrimary
+                            )
+                        }
                     }
 
                     DropdownMenu(
@@ -878,38 +963,6 @@ class StreamActivity : FragmentActivity() {
                     }
                 }
 
-                // Kanan tengah: tombol Tactical Communication (LiveKit)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(16.dp)
-                ) {
-                    Column() {
-                        Box(
-                            Modifier
-                                .background(
-                                    color = Color.Black.copy(alpha = 0.4f),
-                                    shape = RoundedCornerShape(size = 24.dp)
-                                )
-                                .border(
-                                    width = 2.dp,
-                                    color = if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary,
-                                    shape = RoundedCornerShape(size = 24.dp)
-                                )
-                                .clickable { showDialogCall = true }
-                                .width(48.dp)
-                                .height(48.dp)
-                                .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp)
-                        ) {
-                            Image(
-                                modifier = Modifier.align(Alignment.Center),
-                                painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
-                                contentDescription = null,
-                                colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
-                            )
-                        }
-                    }
-                }
             }
 
             // ── Dialog pengaturan RTMP ───────────────────────────────────────
@@ -926,6 +979,14 @@ class StreamActivity : FragmentActivity() {
                 savedRTMPConfig = savedRTMPConfig,
                 onStopRTPM = onStopRTMP
             )
+
+            // ── Dialog Mission Brief (rundown dari API) ──────────────────────
+            if (showMissionBrief) {
+                DialogMissionBrief(
+                    onDismiss = { showMissionBrief = false },
+                    apiService = livekitApiService,
+                )
+            }
 
             // ── LiveKit (audio call) ─────────────────────────────────────────
             val settings = AppSettingsManager.getInstance(context = context)
