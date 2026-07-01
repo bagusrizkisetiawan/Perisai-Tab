@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import java.io.File
 import android.view.LayoutInflater
@@ -74,6 +75,7 @@ class CameraPreviewFragment : CameraFragment() {
 
     private val captureRunnable = object : Runnable {
         override fun run() {
+            val startMs = SystemClock.elapsedRealtime()
             val enc = encoder
             val rec = recorder
             val tv = textureView
@@ -95,7 +97,12 @@ class CameraPreviewFragment : CameraFragment() {
                 }
             }
             if (encoder != null || recorder != null) {
-                captureHandler?.postDelayed(this, 1000L / CAPTURE_FPS)
+                // Pacing yang mengoreksi waktu kerja: jadwal frame berikutnya
+                // berdasarkan sisa interval (bukan interval penuh SETELAH kerja),
+                // supaya fps mendekati target & tidak patah-patah.
+                val elapsed = SystemClock.elapsedRealtime() - startMs
+                val next = (FRAME_INTERVAL_MS - elapsed).coerceAtLeast(0L)
+                captureHandler?.postDelayed(this, next)
             }
         }
     }
@@ -316,22 +323,24 @@ class CameraPreviewFragment : CameraFragment() {
     private companion object {
         const val TAG = "UvcRtmp"
 
-        // Resolusi PREVIEW kamera (yang tampil di layar). 1080p 16:9 agar sumber
-        // capture benar-benar 1080p (bukan upscale 720p). Kalau kamera USB tidak
-        // mendukung 1920×1080, libausbc memilih resolusi terdekat.
-        const val PREVIEW_WIDTH = 1920
-        const val PREVIEW_HEIGHT = 1080
+        // Resolusi PREVIEW kamera (yang tampil di layar). 720p 16:9.
+        // libausbc TIDAK punya setter fps — fps ditentukan kamera per-resolusi.
+        // Mayoritas kamera/dongle UVC: 1080p hanya 5-15fps, tapi 720p 30fps.
+        // Jadi 720p dipilih agar preview MULUS (30fps), bukan patah-patah.
+        const val PREVIEW_WIDTH = 1280
+        const val PREVIEW_HEIGHT = 720
 
-        // Resolusi CAPTURE/stream (di-encode & dikirim RTMP). 1080p penuh.
-        // Konversi warna pakai libyuv (native) jadi CPU tetap ringan.
-        const val CAPTURE_WIDTH = 1920
-        const val CAPTURE_HEIGHT = 1080
+        // Resolusi CAPTURE/stream & rekam. Disamakan dengan preview (720p):
+        // capture > preview hanya meng-upscale (blur + readback lebih berat).
+        const val CAPTURE_WIDTH = 1280
+        const val CAPTURE_HEIGHT = 720
 
-        // Bitrate 1080p untuk live low-latency: ~5 Mbps cukup jernih tanpa
-        // membebani jaringan/buffer server. Naikkan ke 6–8 Mbps bila bandwidth lega.
-        const val DEFAULT_BITRATE = 5_000_000
+        // Bitrate untuk 720p: 4 Mbps sudah tajam untuk live & rekam.
+        const val DEFAULT_BITRATE = 4_000_000
 
-        // FPS capture dari TextureView. 24fps kompromi mulus vs beban CPU.
-        const val CAPTURE_FPS = 24
+        // FPS target capture dari TextureView. 30fps agar lebih mulus; pacing di
+        // captureRunnable otomatis menyesuaikan bila hardware tak sanggup sepenuhnya.
+        const val CAPTURE_FPS = 30
+        const val FRAME_INTERVAL_MS = 1000L / CAPTURE_FPS
     }
 }

@@ -596,7 +596,7 @@ class StreamActivity : FragmentActivity() {
             Box(
                 modifier = Modifier
                     .width(320.dp)
-                    .height(188.dp)
+                    .height(194.dp)
                     .align(Alignment.BottomStart)
                     .padding(16.dp)
                     .zIndex(0.2f)
