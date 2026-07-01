@@ -51,7 +51,10 @@ fun OsmdroidMapView(
     deviceMarkerIcon: Int? = null,
     initialZoom: Double = 19.0,
     pocYaw: Float? = null,
-    followDevice: Boolean = true
+    followDevice: Boolean = true,
+    // Dinaikkan (mis. ++) untuk memaksa peta kembali ke lokasi device, walau
+    // peta sedang di-geser manual. Cocok untuk tombol "my location".
+    recenterTrigger: Int = 0,
 ) {
     val context = LocalContext.current
 
@@ -129,6 +132,15 @@ fun OsmdroidMapView(
 
         mv.controller.animateTo(loc)
         // update bounds setelah animasi supaya data ke-fetch untuk area baru
+        mv.postDelayed({ bounds = mv.boundingBox }, 600)
+    }
+
+    // Recenter manual: kembali ke lokasi device saat tombol ditekan.
+    LaunchedEffect(recenterTrigger) {
+        if (recenterTrigger <= 0) return@LaunchedEffect
+        val mv = mapViewRef ?: return@LaunchedEffect
+        val loc = deviceLocation ?: return@LaunchedEffect
+        mv.controller.animateTo(loc)
         mv.postDelayed({ bounds = mv.boundingBox }, 600)
     }
 

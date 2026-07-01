@@ -28,6 +28,8 @@ fun UvcCameraView(
     onRtmpState: (Boolean, Boolean, String?) -> Unit = { _, _, _ -> },
     isRecording: Boolean = false,
     onRecordState: (Boolean, Boolean?, String?) -> Unit = { _, _, _ -> },
+    takePhotoTrigger: Int = 0,
+    onPhotoState: (Boolean, String?) -> Unit = { _, _ -> },
 ) {
     val activity = LocalContext.current as FragmentActivity
 
@@ -44,6 +46,7 @@ fun UvcCameraView(
                     this.onState = onState
                     this.onRtmpState = onRtmpState
                     this.onRecordState = onRecordState
+                    this.onPhotoState = onPhotoState
                 }
                 fm.beginTransaction()
                     .replace(view.id, fragment)
@@ -52,6 +55,7 @@ fun UvcCameraView(
                 existing.onState = onState
                 existing.onRtmpState = onRtmpState
                 existing.onRecordState = onRecordState
+                existing.onPhotoState = onPhotoState
             }
         },
     )
@@ -68,6 +72,14 @@ fun UvcCameraView(
         val frag = activity.supportFragmentManager
             .findFragmentById(R.id.camera_container) as? CameraPreviewFragment
         if (isRecording) frag?.startRecording() else frag?.stopRecording()
+    }
+
+    // Ambil foto saat takePhotoTrigger dinaikkan (one-shot).
+    LaunchedEffect(takePhotoTrigger) {
+        if (takePhotoTrigger <= 0) return@LaunchedEffect
+        val frag = activity.supportFragmentManager
+            .findFragmentById(R.id.camera_container) as? CameraPreviewFragment
+        frag?.takePhoto()
     }
 
     DisposableEffect(Unit) {

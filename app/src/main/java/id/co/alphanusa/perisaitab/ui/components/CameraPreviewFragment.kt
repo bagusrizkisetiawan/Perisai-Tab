@@ -39,6 +39,9 @@ class CameraPreviewFragment : CameraFragment() {
     /** Callback status rekam: (recording?, savedOk?, pesan?). savedOk null = baru mulai. */
     var onRecordState: ((Boolean, Boolean?, String?) -> Unit)? = null
 
+    /** Callback hasil ambil foto: (sukses?, pesan?). */
+    var onPhotoState: ((Boolean, String?) -> Unit)? = null
+
     private var viewContainer: FrameLayout? = null
     private var textureView: AspectRatioTextureView? = null
 
@@ -239,6 +242,33 @@ class CameraPreviewFragment : CameraFragment() {
         ensureCaptureLoop()
         onRecordState?.invoke(true, null, null)
         Log.d(TAG, "recording dimulai → ${file.name}")
+    }
+
+    /** Ambil satu foto dari frame kamera USB → simpan ke galeri (PERISAI Photo). */
+    fun takePhoto() {
+        val tv = textureView
+        if (tv == null || !tv.isAvailable || !isCameraOpened()) {
+            onPhotoState?.invoke(false, "Kamera belum siap")
+            return
+        }
+        val bmp = runCatching { tv.getBitmap(CAPTURE_WIDTH, CAPTURE_HEIGHT) }.getOrNull()
+        if (bmp == null) {
+            onPhotoState?.invoke(false, "Gagal mengambil frame")
+            return
+        }
+        val ctx = requireContext().applicationContext
+        Thread {
+            val saved = runCatching {
+                saveImageToGallery(ctx, bmp, "PERISAI_${System.currentTimeMillis()}.jpg")
+            }.getOrDefault(false)
+            handler.post {
+                onPhotoState?.invoke(
+                    saved,
+                    if (saved) "Foto tersimpan (PERISAI Photo)" else "Gagal menyimpan foto"
+                )
+            }
+        }.start()
+        Log.d(TAG, "takePhoto: capture ${CAPTURE_WIDTH}x$CAPTURE_HEIGHT, menyimpan…")
     }
 
     /** Hentikan rekam, finalisasi MP4, lalu simpan ke galeri (background). */

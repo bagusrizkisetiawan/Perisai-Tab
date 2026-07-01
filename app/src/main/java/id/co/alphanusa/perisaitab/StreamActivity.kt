@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -109,6 +110,8 @@ import id.co.alphanusa.perisaitab.utils.ILocationHelper
 import id.co.alphanusa.perisaitab.utils.NativeLocationHelper
 import io.livekit.android.compose.local.RoomScope
 import io.livekit.android.compose.state.rememberTracks
+import io.livekit.android.events.RoomEvent
+import io.livekit.android.events.collect
 import io.livekit.android.room.participant.RemoteParticipant
 import io.livekit.android.room.track.RemoteAudioTrack
 import io.livekit.android.room.track.Track
@@ -550,12 +553,36 @@ class StreamActivity : FragmentActivity() {
         // ── State rekam video (MP4 → galeri PERISAI VIDEO) ───────────────────
         var isRecording by remember { mutableStateOf(false) }
 
+        // Durasi rekam (detik) — jalan selama isRecording, reset saat berhenti.
+        var recordElapsed by remember { mutableIntStateOf(0) }
+        LaunchedEffect(isRecording) {
+            recordElapsed = 0
+            if (isRecording) {
+                while (true) {
+                    delay(1000)
+                    recordElapsed++
+                }
+            }
+        }
+        val recordTime = String.format(
+            Locale.US, "%02d:%02d", recordElapsed / 60, recordElapsed % 60
+        )
+
+        // Dinaikkan tiap tombol kamera ditekan → ambil foto (one-shot).
+        var takePhotoTrigger by remember { mutableIntStateOf(0) }
+
         // Kontrol kamera di atas preview: muncul saat preview ditap, hilang
         // sendiri setelah 5 detik.
         var showPreviewControls by remember { mutableStateOf(false) }
 
         // Dialog Mission Brief (rundown dari API).
         var showMissionBrief by remember { mutableStateOf(false) }
+
+        // Dinaikkan tiap tombol "my location" ditekan → peta kembali ke lokasi device.
+        var recenterTrigger by remember { mutableIntStateOf(0) }
+
+        // Nama peserta yang sedang bicara di room LiveKit (di-update dari RoomScope).
+        var speakingNames by remember { mutableStateOf<List<String>>(emptyList()) }
 
         // Sisa storage HP (di-refresh berkala; berkurang saat merekam).
         var freeStorage by remember { mutableStateOf(freeStorageText()) }
@@ -618,7 +645,8 @@ class StreamActivity : FragmentActivity() {
                         .zIndex(if (splitMapToCamera) 1f else 2f),
                     deviceLocation = deviceGeoPoint,
                     deviceMarkerIcon = R.drawable.ic_map,
-                    pocYaw = yaw
+                    pocYaw = yaw,
+                    recenterTrigger = recenterTrigger
                 )
             }
 
@@ -665,6 +693,12 @@ class StreamActivity : FragmentActivity() {
                     isRecording = isRecording,
                     onRecordState = { recording, savedOk, message ->
                         isRecording = recording
+                        if (!message.isNullOrEmpty()) {
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    takePhotoTrigger = takePhotoTrigger,
+                    onPhotoState = { _, message ->
                         if (!message.isNullOrEmpty()) {
                             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         }
@@ -733,28 +767,31 @@ class StreamActivity : FragmentActivity() {
                             ) { showPreviewControls = false }
                     ) {
 
-                        Box(
-                            modifier = Modifier.padding(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .background(
-                                        Color.Black.copy(alpha = 0.6f),
-                                        shape = RoundedCornerShape(2.dp)
-                                    )
-                                    .padding(6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        // Info storage hanya saat TIDAK merekam (saat rekam diganti
+                        // timer persisten di bawah).
+                        if (!isRecording) {
+                            Box(
+                                modifier = Modifier.padding(8.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.outline_sd_card_24),
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Text(freeStorage, color = colorPrimary, fontSize = 10.sp)
-                                Text("Free", color = Color.White, fontSize = 10.sp)
-
+                                Row(
+                                    modifier = Modifier
+                                        .background(
+                                            Color.Black.copy(alpha = 0.6f),
+                                            shape = RoundedCornerShape(2.dp)
+                                        )
+                                        .padding(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.outline_sd_card_24),
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(freeStorage, color = colorPrimary, fontSize = 10.sp)
+                                    Text("Free", color = Color.White, fontSize = 10.sp)
+                                }
                             }
                         }
                         Row(
@@ -787,6 +824,15 @@ class StreamActivity : FragmentActivity() {
                                         shape = CircleShape
                                     )
                                     .clickable {
+                                        if (state !is UiState.Connected) {
+                                            Toast.makeText(
+                                                context,
+                                                "Kamera USB belum siap",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            takePhotoTrigger++
+                                        }
                                     }
                                     .width(56.dp)
                                     .height(56.dp)
@@ -807,6 +853,41 @@ class StreamActivity : FragmentActivity() {
                         delay(5000)
                         showPreviewControls = false
                     }
+                }
+
+                // Saat merekam: timer PERSISTEN (tidak ikut hilang 5 detik) +
+                // border danger mengelilingi preview. Digambar paling atas.
+                if (isRecording) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .background(
+                                Color.Black.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(2.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(dangerColor)
+                        )
+                        Text(recordTime, color = Color.White, fontSize = 10.sp)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .border(
+                                width = 3.dp,
+                                color = dangerColor,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                    )
                 }
             }
 
@@ -898,16 +979,55 @@ class StreamActivity : FragmentActivity() {
                                     shape = RoundedCornerShape(size = 24.dp)
                                 )
                                 .clickable { showDialogCall = true }
+                                .height(48.dp)
+                                .width(if (livekitShouldConnect && !token.isNullOrEmpty()) 240.dp else 48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+
+                            Row(modifier = Modifier.padding(horizontal=12.dp), verticalAlignment = Alignment.CenterVertically){
+                                Image(
+                                    modifier = Modifier
+                                        .size(26.dp),
+                                    painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
+                                    contentDescription = null,
+                                    colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
+                                )
+
+                                if (livekitShouldConnect && !token.isNullOrEmpty()){
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        text = if (speakingNames.isEmpty()) "Tidak ada yang bicara"
+                                        else "Speaking: ${speakingNames.joinToString(", ")}",
+                                        color = successColor,
+                                        fontSize = 8.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                        Box(
+                            Modifier
+                                .background(
+                                    color = Color.Black.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = colorPrimary,
+                                    shape = RoundedCornerShape(size = 24.dp)
+                                )
+                                .clickable { recenterTrigger++ }
                                 .size(48.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Image(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .size(26.dp),
-                                painter = painterResource(id = if (livekitShouldConnect && !token.isNullOrEmpty()) R.drawable.outline_phone_in_talk_24 else R.drawable.outline_call_24),
+
+                            Icon(
+                                painter = painterResource(R.drawable.outline_my_location_24),
                                 contentDescription = null,
-                                colorFilter = ColorFilter.tint(if (livekitShouldConnect && !token.isNullOrEmpty()) successColor else colorPrimary)
+                                modifier = Modifier.size(26.dp),
+                                tint = colorPrimary
                             )
                         }
 
@@ -1015,6 +1135,25 @@ class StreamActivity : FragmentActivity() {
                     )
                     val remoteAudioTracks = remoteAudioTrackRefs.filter {
                         it.participant is RemoteParticipant
+                    }
+
+                    // ── Effect: siapa yang sedang bicara (active speakers) ────
+                    LaunchedEffect(room) {
+                        fun names(list: List<io.livekit.android.room.participant.Participant>) =
+                            list.map { p ->
+                                p.name?.takeIf { it.isNotBlank() }
+                                    ?: p.identity?.value
+                                    ?: "?"
+                            }
+                        speakingNames = names(room.activeSpeakers)
+                        room.events.collect { event ->
+                            if (event is RoomEvent.ActiveSpeakersChanged) {
+                                speakingNames = names(event.speakers)
+                            }
+                        }
+                    }
+                    DisposableEffect(Unit) {
+                        onDispose { speakingNames = emptyList() }
                     }
 
                     // ── Effect: Mic lokal ─────────────────────────────────────

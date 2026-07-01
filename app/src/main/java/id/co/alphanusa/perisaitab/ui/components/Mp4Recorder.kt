@@ -221,3 +221,51 @@ fun saveVideoToGallery(context: Context, source: File, displayName: String): Boo
         runCatching { source.delete() }
     }
 }
+
+/**
+ * Simpan [bitmap] (foto) ke galeri, folder Pictures/PERISAI Photo. Dipanggil dari
+ * background thread. Format JPEG.
+ */
+fun saveImageToGallery(context: Context, bitmap: Bitmap, displayName: String): Boolean {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(
+                    MediaStore.Images.Media.RELATIVE_PATH,
+                    Environment.DIRECTORY_PICTURES + "/PERISAI Photo",
+                )
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: return false
+            resolver.openOutputStream(uri)?.use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            } ?: return false
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            true
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                "PERISAI Photo",
+            )
+            if (!dir.exists()) dir.mkdirs()
+            val dest = File(dir, displayName)
+            dest.outputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
+            MediaScannerConnection.scanFile(
+                context, arrayOf(dest.absolutePath), arrayOf("image/jpeg"), null,
+            )
+            true
+        }
+    } catch (e: Exception) {
+        Log.e("UvcRec", "saveImageToGallery error: ${e.message}")
+        false
+    }
+}
