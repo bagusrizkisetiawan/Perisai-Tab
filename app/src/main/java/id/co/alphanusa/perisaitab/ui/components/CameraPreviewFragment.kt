@@ -62,7 +62,6 @@ class CameraPreviewFragment : CameraFragment() {
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var captureBitmap: Bitmap? = null
-    private var argbBuf: IntArray? = null
 
     private val captureRunnable = object : Runnable {
         override fun run() {
@@ -77,15 +76,10 @@ class CameraPreviewFragment : CameraFragment() {
                         captureBitmap = bmp
                     }
                     tv.getBitmap(bmp)
-                    var buf = argbBuf
-                    if (buf == null || buf.size != CAPTURE_WIDTH * CAPTURE_HEIGHT) {
-                        buf = IntArray(CAPTURE_WIDTH * CAPTURE_HEIGHT)
-                        argbBuf = buf
-                    }
-                    bmp.getPixels(buf, 0, CAPTURE_WIDTH, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT)
                     if (frameCount < 3) Log.d(TAG, "capture frame #$frameCount")
                     frameCount++
-                    enc.encodeArgb(buf)
+                    // Konversi ARGB→NV12 native (libyuv) → cukup ringan untuk 1080p.
+                    enc.encodeBitmap(bmp)
                 } catch (e: Exception) {
                     Log.e(TAG, "capture error: ${e.message}")
                 }
@@ -249,17 +243,20 @@ class CameraPreviewFragment : CameraFragment() {
     private companion object {
         const val TAG = "UvcRtmp"
 
-        // Resolusi PREVIEW kamera (yang tampil di layar). Pakai 720p 16:9 agar
-        // preview tajam & tidak jadi kotak 4:3. Ini terpisah dari resolusi capture.
-        const val PREVIEW_WIDTH = 1280
-        const val PREVIEW_HEIGHT = 720
+        // Resolusi PREVIEW kamera (yang tampil di layar). 1080p 16:9 agar sumber
+        // capture benar-benar 1080p (bukan upscale 720p). Kalau kamera USB tidak
+        // mendukung 1920×1080, libausbc memilih resolusi terdekat.
+        const val PREVIEW_WIDTH = 1920
+        const val PREVIEW_HEIGHT = 1080
 
-        // Resolusi CAPTURE/stream (di-encode & dikirim RTMP). Lebih kecil dari
-        // preview supaya getBitmap + konversi ARGB→YUV ringan = mulus & delay
-        // rendah. Naikkan ke 1280×720 kalau mau stream lebih tajam (lebih berat).
-        const val CAPTURE_WIDTH = 960
-        const val CAPTURE_HEIGHT = 540
-        const val DEFAULT_BITRATE = 2_500_000
+        // Resolusi CAPTURE/stream (di-encode & dikirim RTMP). 1080p penuh.
+        // Konversi warna pakai libyuv (native) jadi CPU tetap ringan.
+        const val CAPTURE_WIDTH = 1920
+        const val CAPTURE_HEIGHT = 1080
+
+        // Bitrate 1080p untuk live low-latency: ~5 Mbps cukup jernih tanpa
+        // membebani jaringan/buffer server. Naikkan ke 6–8 Mbps bila bandwidth lega.
+        const val DEFAULT_BITRATE = 5_000_000
 
         // FPS capture dari TextureView. 24fps kompromi mulus vs beban CPU.
         const val CAPTURE_FPS = 24

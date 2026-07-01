@@ -1,9 +1,12 @@
 package id.co.alphanusa.perisaitab.ui.components
 
+import android.graphics.Bitmap
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.util.Log
+import io.github.crow_misia.libyuv.AbgrBuffer
+import io.github.crow_misia.libyuv.Nv12Buffer
 import java.nio.ByteBuffer
 
 /**
@@ -30,6 +33,10 @@ class Nv21H264Encoder(
     private var startNs = 0L
     @Volatile private var running = false
 
+    // Buffer libyuv (konversi native ARGB→NV12), dialokasi sekali.
+    private var abgrBuf: AbgrBuffer? = null
+    private var nv12LibYuv: Nv12Buffer? = null
+
     fun start() {
         val format = MediaFormat.createVideoFormat(MIME, width, height).apply {
             setInteger(
@@ -38,7 +45,9 @@ class Nv21H264Encoder(
             )
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+            // GOP 1 detik: keyframe lebih sering → latency lebih rendah & recovery
+            // cepat di sisi pemutar (WebRTC/HLS) walau bitrate sedikit naik.
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
         }
         codec = MediaCodec.createEncoderByType(MIME).apply {
             configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -62,6 +71,47 @@ class Nv21H264Encoder(
         if (!running) return
         argbToNv12(argb, width, height, nv12Argb)
         feed(nv12Argb)
+    }
+
+    /**
+     * Suapkan satu Bitmap (ARGB_8888) — konversi ARGB→NV12 pakai libyuv (native,
+     * jauh lebih cepat dari Kotlin), cocok untuk 1080p tanpa membebani CPU.
+     */
+    fun encodeBitmap(bitmap: Bitmap) {
+        if (!running) return
+        try {
+            val a = abgrBuf ?: AbgrBuffer.Factory.allocate(width, height).also { abgrBuf = it }
+            val n = nv12LibYuv ?: Nv12Buffer.Factory.allocate(width, height).also { nv12LibYuv = it }
+            val src = a.asBuffer()
+            src.rewind()
+            bitmap.copyPixelsToBuffer(src) // ARGB_8888 → byte RGBA = libyuv ABGR
+            a.convertTo(n)
+            val out = n.asBuffer()
+            out.rewind()
+            feedBuffer(out)
+        } catch (e: Exception) {
+            Log.e(TAG, "encodeBitmap error: ${e.message}")
+        }
+    }
+
+    private fun feedBuffer(buf: ByteBuffer) {
+        val c = codec ?: return
+        try {
+            val inIndex = c.dequeueInputBuffer(10_000)
+            if (inIndex >= 0) {
+                val input = c.getInputBuffer(inIndex)
+                if (input != null) {
+                    input.clear()
+                    val size = buf.remaining()
+                    input.put(buf)
+                    val ptsUs = (System.nanoTime() - startNs) / 1000
+                    c.queueInputBuffer(inIndex, 0, size, ptsUs, 0)
+                }
+            }
+            drain(c)
+        } catch (e: Exception) {
+            Log.e(TAG, "feedBuffer error: ${e.message}")
+        }
     }
 
     private fun feed(yuv: ByteArray) {
@@ -117,6 +167,10 @@ class Nv21H264Encoder(
         runCatching { codec?.stop() }
         runCatching { codec?.release() }
         codec = null
+        runCatching { abgrBuf?.close() }
+        runCatching { nv12LibYuv?.close() }
+        abgrBuf = null
+        nv12LibYuv = null
     }
 
     /** ARGB_8888 → NV12 (BT.601 limited range). */

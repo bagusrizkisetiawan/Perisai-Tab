@@ -128,6 +128,9 @@ dependencies {
     }
     implementation("androidx.fragment:fragment-ktx:1.8.5")
 
+    // libyuv (konversi warna native cepat: ARGB→NV12) untuk 1080p tanpa beban CPU.
+    implementation("io.github.crow-misia.libyuv:libyuv-android:0.40.0")
+
     //splash screen
     implementation("androidx.core:core-splashscreen:1.0.1")
 }

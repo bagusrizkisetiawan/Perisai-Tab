@@ -1,5 +1,7 @@
 package id.co.alphanusa.perisaitab.ui.components
 
+import android.annotation.SuppressLint
+import android.util.Log
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -11,13 +13,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -25,13 +27,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,24 +46,16 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.materials.HazeMaterials
 import id.co.alphanusa.perisaitab.R
 import id.co.alphanusa.perisaitab.data.remote.api.ApiConfig
+import id.co.alphanusa.perisaitab.data.remote.response.Participant
 import id.co.alphanusa.perisaitab.ui.viewmodel.LivekitViewModel
 import id.co.alphanusa.perisaitab.ui.viewmodel.LivekitViewModelFactory
-import id.co.alphanusa.perisaitab.data.remote.response.Participant
-import id.co.alphanusa.perisaitab.ui.components.backgroundColor
-import id.co.alphanusa.perisaitab.ui.components.colorPrimary
-import id.co.alphanusa.perisaitab.ui.components.dangerColor
-import id.co.alphanusa.perisaitab.ui.components.successColor
 import io.livekit.android.compose.types.TrackReference
 import io.livekit.android.events.ParticipantEvent
 import io.livekit.android.events.collect
@@ -82,10 +72,9 @@ fun DialogCall(
     onEndCall: () -> Unit,
     onJoin: (() -> Unit)? = null,
 ) {
-    val hazeState = remember { HazeState() }
     val isConnected = onJoin == null
-    val authManager = ApiConfig.getInstance(context = LocalContext.current)
-    val livekitApiService = authManager.apiService
+    val apiConfig = ApiConfig.getInstance(context = LocalContext.current)
+    val livekitApiService = apiConfig.apiService
     val factory = remember(livekitApiService) { LivekitViewModelFactory(livekitApiService) }
     val livekitViewModel: LivekitViewModel = viewModel(factory = factory)
     val participants by livekitViewModel.listParticipant.collectAsState()
@@ -105,7 +94,7 @@ fun DialogCall(
         Box(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 32.dp)
+                .padding(horizontal = 180.dp, vertical = 12.dp)
         ) {
             Box(
                 modifier =
@@ -120,7 +109,6 @@ fun DialogCall(
                                 bottomEnd = 10.dp
                             )
                         )
-                        .hazeChild(state = hazeState, style = HazeMaterials.ultraThin())
                         .fillMaxWidth()
                         .matchParentSize()
                         .background(
@@ -161,7 +149,7 @@ fun DialogCall(
                 ) {
                     Text(
                         text = "Tactical Communication",
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         color = Color.White
                     )
                     Image(
@@ -196,7 +184,7 @@ fun DialogCall(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(26.dp),
+                    .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
 
@@ -207,7 +195,7 @@ fun DialogCall(
                         audioTracks = audioTracks,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 260.dp)
+                            .heightIn(max = 200.dp)
                     )
 
                     if (audioTracks.isEmpty()) {
@@ -252,7 +240,7 @@ fun DialogCall(
 
                             )
                         }
-                    }else{
+                    } else {
                         ParticipantsJoined(participants = participants)
                     }
 
@@ -328,12 +316,6 @@ fun DialogCall(
                                     colorFilter = ColorFilter.tint(if (isMuted) Color.White else Color.Black)
                                 )
                             }
-//                            Spacer(modifier = Modifier.height(6.dp))
-//                            Text(
-//                                text = if (isMuted) "Mic Off" else "Mic On",
-//                                color = Color.White,
-//                                fontSize = 10.sp
-//                            )
                         }
 
 
@@ -469,7 +451,6 @@ fun DialogCall(
     }
 }
 
-
 @Composable
 fun ParticipantsJoined(participants: List<Participant>) {
 
@@ -477,7 +458,10 @@ fun ParticipantsJoined(participants: List<Participant>) {
     val visibleParticipants = participants.take(maxVisible)
     val remainingCount = participants.size - maxVisible
 
-    Column(modifier = Modifier.padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier.padding(vertical = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
 
         // === AVATAR STACK ===
         Box(
@@ -500,7 +484,7 @@ fun ParticipantsJoined(participants: List<Participant>) {
                         Text(
                             text = initial,
                             color = Color.White,
-                            fontSize = 10.sp
+                            fontSize = 14.sp
                         )
                     }
                 }
@@ -519,7 +503,7 @@ fun ParticipantsJoined(participants: List<Participant>) {
                         Text(
                             text = "+$remainingCount",
                             color = Color.White,
-                            fontSize = 10.sp
+                            fontSize = 12.sp
                         )
                     }
                 }
@@ -553,6 +537,17 @@ fun buildJoinedText(participants: List<Participant>): String {
 }
 
 
+/**
+ * Layout horizontal, 1 baris saja:
+ * - 1 participant   → full width
+ * - 2 participants  → 50% : 50%
+ * - 3 participants  → 33% : 33% : 33%
+ * - 4 participants  → 25% : 25% : 25% : 25%
+ * - 5+ participants → 4 pertama fit di layar, sisanya di-scroll horizontal ke kanan
+ *
+ * Height tetap 180.dp.
+ */
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun ParticipantsGrid(
     audioTracks: List<TrackReference>,
@@ -560,58 +555,32 @@ fun ParticipantsGrid(
 ) {
     if (audioTracks.isEmpty()) return
 
-    val rows = remember(audioTracks) { chunkedRows(audioTracks) }
-    val maxCols = rows.maxOfOrNull { it.size } ?: 1
     val gap = 8.dp
-
-    // 🔹 Tinggi per item: 1 baris = 360.dp, 2+ baris = 180.dp
-    val itemHeight = if (rows.size <= 1) 240.dp else 116.dp
+    val itemHeight = 180.dp
+    val maxVisible = 4
+    val visibleCount = audioTracks.size.coerceAtMost(maxVisible)
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val itemWidth = (maxWidth - gap * (maxCols - 1)) / maxCols
+        // Lebar tiap item dihitung berdasar jumlah yang VISIBLE (max 4).
+        // Item ke-5+ otomatis overflow ke kanan → scroll horizontal.
+        val itemWidth = (maxWidth - gap * (visibleCount - 1)) / visibleCount
 
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),   // ✅ scrollable
-            verticalArrangement = Arrangement.spacedBy(gap)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(gap)
         ) {
-            rows.forEach { rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally)
-                ) {
-                    rowItems.forEach { trackRef ->
-                        Box(
-                            modifier = Modifier
-                                .width(itemWidth)
-                                .height(itemHeight)        // ✅ tinggi konsisten
-                        ) {
-                            ParticipantBox(
-                                trackRef = trackRef,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-                }
+            audioTracks.forEach { trackRef ->
+                ParticipantBox(
+                    trackRef = trackRef,
+                    modifier = Modifier
+                        .width(itemWidth)
+                        .height(itemHeight)
+                )
             }
         }
     }
-}
-/**
- * Aturan pembagian baris:
- * - 1 → [1]
- * - 2 → [2]
- * - 3 → [2, 1]   (kanan-kiri, bawah)
- * - 4 → [2, 2]
- * - 5+ → kelipatan 3 (max 3 per baris)
- */
-private fun <T> chunkedRows(items: List<T>): List<List<T>> = when (items.size) {
-    0 -> emptyList()
-    1, 2 -> listOf(items)
-    3 -> listOf(items.take(2), listOf(items[2]))
-    4 -> listOf(items.take(2), items.drop(2))
-    else -> items.chunked(3)
 }
 
 @Composable
@@ -622,28 +591,51 @@ private fun ParticipantBox(
     var isSpeaking by remember(trackRef.participant) {
         mutableStateOf(trackRef.participant.isSpeaking)
     }
-
-    // Status mute mic peserta ini (true = mic dimatikan)
+    // Status mute mic participant (true = di-mute)
     var isMuted by remember(trackRef.participant) {
-        mutableStateOf(trackRef.publication?.muted ?: true)
+        mutableStateOf(trackRef.publication?.muted ?: false)
     }
 
-    LaunchedEffect(trackRef.participant, trackRef.publication) {
-        // Sinkronkan kondisi awal saat box pertama tampil
-        isMuted = trackRef.publication?.muted ?: true
+    // Label buat log (nama lebih ramah, fallback ke identity)
+    val participantLabel = trackRef.participant.name?.takeIf { it.isNotBlank() }
+        ?: trackRef.participant.identity?.value
+        ?: "unknown"
 
+    // Re-init isMuted setiap kali publication berubah (mis. participant baru
+    // re-publish mic, atau pertama kali publication tersedia). Tanpa ini, kalau
+    // participant join dengan mic udah muted, kita nggak akan tahu sampai
+    // ada event TrackMuted/TrackUnmuted berikutnya.
+    LaunchedEffect(trackRef.publication) {
+        val pubMuted = trackRef.publication?.muted ?: false
+        if (pubMuted != isMuted) isMuted = pubMuted
+        Log.d(
+            "LiveKit-Mute",
+            "🎤 [$participantLabel] initial mic muted=$pubMuted " +
+                    "(publication=${trackRef.publication?.sid})"
+        )
+    }
+
+    LaunchedEffect(trackRef.participant) {
         trackRef.participant.events.collect { event ->
             when (event) {
                 is ParticipantEvent.SpeakingChanged ->
                     isSpeaking = event.participant.isSpeaking
 
-                is ParticipantEvent.TrackMuted ->
-                    if (event.publication.kind == Track.Kind.AUDIO) isMuted = true
+                is ParticipantEvent.TrackMuted -> {
+                    if (event.publication.source == Track.Source.MICROPHONE) {
+                        isMuted = true
+                        Log.d("LiveKit-Mute", "🔇 [$participantLabel] → MUTED")
+                    }
+                }
 
-                is ParticipantEvent.TrackUnmuted ->
-                    if (event.publication.kind == Track.Kind.AUDIO) isMuted = false
+                is ParticipantEvent.TrackUnmuted -> {
+                    if (event.publication.source == Track.Source.MICROPHONE) {
+                        isMuted = false
+                        Log.d("LiveKit-Mute", "🎙️ [$participantLabel] → UNMUTED")
+                    }
+                }
 
-                else -> Unit
+                else -> {}
             }
         }
     }
@@ -705,7 +697,6 @@ private fun ParticipantBox(
                 fontSize = 10.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -720,8 +711,7 @@ private fun ParticipantBox(
                 colorFilter = ColorFilter.tint(
                     when {
                         isMuted -> dangerColor
-                        !isMuted -> successColor
-                        isSpeaking -> colorPrimary
+                        isSpeaking -> successColor
                         else -> Color.LightGray
                     }
                 )

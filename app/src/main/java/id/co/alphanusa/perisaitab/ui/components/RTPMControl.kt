@@ -124,7 +124,6 @@ fun RTMPControl(
 
                 TacticalContainer(
                     modifier = Modifier
-                        .height(280.dp)
                         .width(340.dp),
                     accentColor = borderColor,
                     background = backgroundColor,
@@ -132,7 +131,7 @@ fun RTMPControl(
                 ) {
 
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)
                     ) {
 
                         Box(
