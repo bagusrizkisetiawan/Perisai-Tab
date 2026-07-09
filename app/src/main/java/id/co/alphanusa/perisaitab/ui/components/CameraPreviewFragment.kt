@@ -63,6 +63,7 @@ class CameraPreviewFragment : CameraFragment() {
     @Volatile private var pendingUrl: String? = null
     @Volatile private var videoInfoSent = false
     private var encoder: Nv21H264Encoder? = null
+    private var audioEncoder: AacAudioEncoder? = null
     private var frameCount = 0
 
     // ── Rekam video (MP4 → galeri) ─────────────────────────────────────────────
@@ -174,7 +175,8 @@ class CameraPreviewFragment : CameraFragment() {
             }
         }
 
-        val client = RtmpClient(checker).apply { setOnlyVideo(true) }
+        // Default RtmpClient = audio + video (tidak setOnlyVideo lagi).
+        val client = RtmpClient(checker)
         rtmpClient = client
         onRtmpState?.invoke(false, true, null) // loading
 
@@ -206,15 +208,38 @@ class CameraPreviewFragment : CameraFragment() {
         }
         encoder = enc
 
+        // Audio: mic HP → AAC → RTMP. setAudioInfo HARUS sebelum connect (connect
+        // terjadi saat frame video pertama meng-config, yaitu setelah capture loop
+        // mulai). Bila gagal (mis. mic dipakai LiveKit), stream tetap jalan video-only.
+        var audioOk = false
+        runCatching {
+            val aenc = AacAudioEncoder(
+                sampleRate = AUDIO_SAMPLE_RATE,
+                channelCount = if (AUDIO_STEREO) 2 else 1,
+                bitrate = AUDIO_BITRATE,
+                onFrame = { buf, info ->
+                    runCatching { client.sendAudio(buf, info) }
+                        .onFailure { Log.e(TAG, "sendAudio error: ${it.message}") }
+                },
+            )
+            aenc.start()
+            audioEncoder = aenc
+            client.setAudioInfo(AUDIO_SAMPLE_RATE, AUDIO_STEREO)
+            audioOk = true
+        }.onFailure { Log.e(TAG, "audio setup gagal (lanjut video-only): ${it.message}") }
+        if (!audioOk) client.setOnlyVideo(true)
+
         // Mulai (atau ikut) capture loop dari TextureView.
         ensureCaptureLoop()
-        Log.d(TAG, "encoder start + capture loop @${CAPTURE_FPS}fps")
+        Log.d(TAG, "encoder start + capture loop @${CAPTURE_FPS}fps, audio=$audioOk")
     }
 
     /** Hentikan streaming RTMP (preview & rekam tetap jalan). */
     fun stopRtmp() {
         val client = rtmpClient ?: return
         rtmpClient = null
+        runCatching { audioEncoder?.stop() }
+        audioEncoder = null
         runCatching { encoder?.stop() }
         encoder = null
         stopCaptureLoopIfIdle()
@@ -372,5 +397,10 @@ class CameraPreviewFragment : CameraFragment() {
         // captureRunnable otomatis menyesuaikan bila hardware tak sanggup sepenuhnya.
         const val CAPTURE_FPS = 30
         const val FRAME_INTERVAL_MS = 1000L / CAPTURE_FPS
+
+        // Audio stream (mic HP → AAC). Mono 44.1kHz 128kbps cukup untuk suara.
+        const val AUDIO_SAMPLE_RATE = 44100
+        const val AUDIO_STEREO = false
+        const val AUDIO_BITRATE = 128_000
     }
 }
